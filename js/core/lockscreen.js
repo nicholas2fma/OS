@@ -100,23 +100,38 @@
 
   /* ---------- state changes ---------- */
 
-  function setLockY(y, animate) {
-    lock.classList.toggle('anim', !!animate);
-    lock.style.transform = y ? `translateY(${y}px)` : '';
-    lock.style.opacity = y ? String(1 - Math.min(1, -y / (OS.state.height * .6))) : '';
-  }
+  /* the Lock Screen is a sheet: it follows the finger and leaves on a spring */
+  const paintLock = () => {
+    const y = lockY.value, k = wakeZoom.value;
+    lock.style.transform = Math.abs(y) < .1 && Math.abs(k - 1) < .0005 ? '' : `translate3d(0, ${y}px, 0) scale(${k})`;
+  };
+  const lockY = OS.motion.value(0, paintLock);
+  // waking the screen: the Lock Screen settles from slightly closer, like the wallpaper zoom
+  const wakeZoom = OS.motion.value(1, paintLock);
+  const revealSpan = () => OS.state.height * .55;
 
-  function unlock(cb) {
+  function unlock(cb, opts) {
+    opts = opts || {};
     if (!OS.state.locked) { if (cb) cb(); return; }
     OS.state.locked = false;
     if (OS.state.ncOpen) OS.NC.close();
-    lock.classList.add('anim', 'unlocked');
-    lock.style.transform = '';
-    lock.style.opacity = '';
-    if (OS.Apps.mode !== 'app') OS.Home.zoomIn();
+    const H = OS.state.height;
+    const v = opts.velocity || 0;
+    lock.style.pointerEvents = 'none';
+    lockY.spring(-H - 12, {
+      preset: { response: .42, damping: 1 },
+      velocity: Math.min(v, -600),
+      onComplete() { lock.classList.add('unlocked'); },
+    });
+    if (OS.Apps.mode !== 'app') {
+      if (!opts.fromDrag) OS.Home.reveal(0);
+      OS.Home.springReveal(1, -v / revealSpan());
+    } else {
+      OS.Home.reveal(1);
+    }
     OS.chrome();
     OS.emit('unlock');
-    setTimeout(() => { lock.classList.remove('anim'); if (cb) cb(); }, cb ? 260 : 0);
+    if (cb) setTimeout(cb, 260);
   }
 
   function lockNow() {
@@ -127,8 +142,9 @@
     if (OS.Apps.mode === 'switcher') OS.Apps.home();
     const wasLocked = OS.state.locked;
     OS.state.locked = true;
-    lock.classList.remove('anim', 'unlocked');
-    setLockY(0);
+    lock.classList.remove('unlocked');
+    lock.style.pointerEvents = '';
+    lockY.set(0);
     tick(); widgets(); notifs(); media();
     faceID();
     OS.chrome();
@@ -146,6 +162,7 @@
     if (OS.state.screenOn) return;
     OS.state.screenOn = true;
     OS.screenEl.classList.remove('off');
+    if (OS.state.locked) { wakeZoom.set(1.06); wakeZoom.spring(1, { preset: { response: .7, damping: 1 } }); }
     faceID();
     widgets(); notifs(); media();
     OS.emit('screen', true);
@@ -173,30 +190,38 @@
       if (e.target.closest('button, .notif, .lock-media')) return;
       const p = OS.point(e);
       if (p.y < 44) return; // top edge belongs to Control/Notification Center
-      g = { y: p.y, x: p.x, t: performance.now(), id: e.pointerId, moved: false };
+      g = { y: p.y, x: p.x, id: e.pointerId, moved: false, tr: OS.motion.tracker(), y0: lockY.value };
+      g.tr.add(p.x, p.y);
       clearTimeout(pressT);
       pressT = setTimeout(() => { if (g && !g.moved) { g = null; OS.haptic(15); customize(); } }, 650);
     });
     window.addEventListener('pointermove', (e) => {
       if (!g || e.pointerId !== g.id) return;
-      const dy = OS.point(e).y - g.y;
-      if (Math.abs(dy) > 6) { g.moved = true; clearTimeout(pressT); }
+      const p = OS.point(e);
+      g.tr.add(p.x, p.y);
+      const dy = p.y - g.y;
+      if (Math.abs(dy) > 6 && !g.moved) { g.moved = true; clearTimeout(pressT); lockY.stop(); }
       if (!g.moved) return;
-      setLockY(Math.min(0, dy));
-      if (OS.Apps.mode !== 'app') OS.Home.setProgress(1 - OS.clamp(-dy / (OS.state.height * .4), 0, 1));
+      const y = g.y0 + dy;
+      // up follows the finger; down only stretches a little
+      lockY.set(y < 0 ? y : OS.motion.rubber(y, OS.state.height * .3, .4));
+      if (OS.Apps.mode !== 'app') OS.Home.reveal(OS.motion.clamp01(-lockY.value / revealSpan()));
     });
-    window.addEventListener('pointerup', (e) => {
+    const end = (e) => {
       clearTimeout(pressT);
       if (!g || e.pointerId !== g.id) return;
-      const dy = OS.point(e).y - g.y;
-      const v = dy / Math.max(1, performance.now() - g.t);
-      const moved = g.moved;
+      const s = g;
       g = null;
-      OS.Home.setProgress(null);
-      if (!moved) { showHint(); return; }
-      if (dy < -OS.state.height * .16 || v < -.5) unlock();
-      else setLockY(0, true);
-    });
+      if (!s.moved) { showHint(); return; }
+      const vy = s.tr.velocity().y;
+      const H = OS.state.height;
+      const projected = -(lockY.value + OS.motion.project(vy, .99));
+      if (vy < -450 || (vy < 300 && projected > H * .3)) { unlock(null, { velocity: vy, fromDrag: true }); return; }
+      lockY.spring(0, { preset: 'snappy', velocity: vy });
+      if (OS.Apps.mode !== 'app') OS.Home.springReveal(0, vy / revealSpan());
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
 
     torchBtn.addEventListener('click', () => { setTorch(!OS.state.torch); OS.haptic(20); });
     camBtn.addEventListener('click', () => { OS.haptic(20); unlock(() => OS.Apps.open('camera')); });
@@ -237,6 +262,8 @@
 
   let hintT = null;
   function showHint() {
+    // a tap makes the Lock Screen hop, hinting that it slides up
+    if (!lockY.animating) lockY.spring(0, { preset: { response: .42, damping: .62 }, velocity: -520 });
     hintEl.classList.remove('show');
     void hintEl.offsetWidth;
     hintEl.classList.add('show');

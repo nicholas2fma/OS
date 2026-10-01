@@ -19,6 +19,32 @@ Su computer appare un iPhone con cornice, tasti laterali e una legenda dei coman
 
 Con Siri AI disattivata (*Impostazioni › Apple Intelligence e Siri*) i gesti tornano quelli di iOS 26.
 
+## Animazioni
+
+Ogni movimento usa la fisica delle molle di iOS, con gli stessi parametri di SwiftUI (*response* e *damping*), invece di durate e curve fisse. Si vede soprattutto in tre cose:
+
+- **Seguono il dito:** quando lo stacchi, l'animazione riparte dalla velocità del gesto. Una spinta veloce arriva lontano, un rilascio lento torna indietro.
+- **Si possono interrompere:** se riprendi un elemento mentre si muove, lo afferri da dov'è e con la sua velocità.
+- **Si allungano oltre il bordo:** liste, pagine e pannelli trascinati oltre il limite fanno da elastico con la formula usata da iOS, poi tornano a posto.
+
+Dove si vede:
+
+- **Sblocco:** la schermata di blocco segue il dito e un tocco la fa saltellare. Le icone entrano a fuoco da più vicino. Al risveglio lo schermo si assesta con un leggero zoom.
+- **App:** si aprono dall'icona e la Home si avvicina all'icona. Col gesto Home la finestra si rimpicciolisce sotto il dito; se la lanci torna nella sua icona. Se ti fermi compare il multitasking. Scorrendo lungo la barra Home passi da un'app all'altra. Nel multitasking le schede si lanciano e si buttano via con la velocità del dito.
+- **Pannelli:** nel Centro di Controllo i moduli crescono dall'angolo, prima i più vicini, e tirando oltre si allungano. Anche Centro Notifiche, Cerca, banner e notifiche (cancellate con uno scorrimento) seguono il dito. Nella Dynamic Island il contenuto appare con sfocatura e scala, e la seconda attività si stacca come una goccia.
+- **Home:** le pagine scorrono a scatti come una lista a pagine, con l'elastico ai bordi. Il dock lascia spazio alla Libreria app. In modifica ogni icona trema con un suo ritmo.
+- **Controlli:**
+  - Navigazione push e pop. Per tornare indietro puoi scorrere da qualsiasi punto, come in iOS 26.
+  - Fogli trascinabili. I fogli grandi spingono indietro lo schermo.
+  - Menu che nascono dal pulsante: tieni premuto e scorri su una voce per sceglierla.
+  - Interruttori trascinabili.
+  - Tab bar e controlli segmentati con la lente di vetro che si allunga in movimento e si trascina tra le voci.
+  - Toccando un vetro si accende una luce sotto il dito.
+- **Scorrimento col mouse:** si trascina come col dito, con inerzia, elastico ai bordi (anche con rotella e trackpad) e titolo grande che si ingrandisce.
+- **Foto:** la foto si apre dalla sua miniatura. Trascinandola giù rimpicciolisce e torna al suo posto nella griglia.
+
+Con *Impostazioni › Accessibilità › Riduci movimento* le molle non rimbalzano e le app si aprono in dissolvenza.
+
 ## Perché il web e non Godot
 
 Un sistema operativo per telefono è fatto soprattutto di testo, liste, scorrimenti, animazioni a molla e materiali traslucidi. Il browser offre tutto questo in modo nativo:
@@ -120,6 +146,8 @@ css/system.css           barra di stato, Dynamic Island, Siri, Home, widget, blo
 css/ui.css               componenti: navigazione, liste, interruttori, tab bar, fogli, avvisi
 css/apps.css             stili delle singole app
 js/core/os.js            stato, impostazioni, eventi, formattazione in italiano
+js/core/motion.js        molle (response/damping), velocità del dito, elastico, curve CSS dalle molle
+js/core/scroll.js        scorrimento col mouse con inerzia ed elastico ai bordi
 js/core/siri.js          comprensione delle richieste, date in linguaggio naturale, scheda nell'isola
 js/core/appmanager.js    apertura e chiusura delle app, gesto Home, multitasking
 js/core/homescreen.js    pagine, dock, widget, modalità modifica, Libreria app

@@ -1,45 +1,60 @@
 /* ==========================================================================
-   App manager: launching (zoom from icon), closing (back into icon),
-   interactive home gesture, app switcher (multitasking)
+   App manager: launching (zoom out of the icon), closing (back into the icon),
+   the interactive Home gesture, swiping along the Home bar between apps and
+   the app switcher. Every movement is a spring (js/core/motion.js) that picks
+   up the finger's velocity and can be interrupted at any time.
    ========================================================================== */
 (function () {
   'use strict';
 
+  const M = () => OS.motion;
   const running = new Map();
   let layer, backdrop;
   let current = null;
   let mode = 'home';           // 'home' | 'app' | 'switcher'
-  let animating = false;
   let zTop = 1;
 
   const W = () => OS.state.width;
   const H = () => OS.state.height;
   const R = () => (OS.state.fullscreen ? 44 : 58);
   const ICON_R = 15;
-  const OPEN_EASE = 'cubic-bezier(.2,.95,.25,1)';
-  const CLOSE_EASE = 'cubic-bezier(.25,.9,.3,1)';
+  const HOME_ZOOM = .16;       // how much the Home Screen zooms toward the icon while an app is open
 
-  /* ---------- frames (transform + clip) ---------- */
+  /* ---------------- visual frames ----------------
+     A window is described in screen space: centre (cx, cy), scale s, visible
+     height hv, corner radius rv and opacity o. applyVis() turns that into a
+     transform + clip-path in the window's own coordinates. */
 
-  function frame(x, y, s, insetY, radius) {
-    return {
-      transform: `translate(${x}px, ${y}px) scale(${s})`,
-      clipPath: `inset(${insetY}px 0px ${insetY}px 0px round ${radius}px)`,
-    };
-  }
-  function fullFrame() { return frame(0, 0, 1, 0, R()); }
-  function iconFrame(r) {
-    const s = r.width / W();
-    const y = r.y + r.height / 2 - (H() * s) / 2;
-    const insetY = (H() - r.height / s) / 2;
-    return frame(r.x, y, s, insetY, ICON_R / s);
-  }
-  function centerRect() {
-    const size = 62;
-    return { x: W() / 2 - size / 2, y: H() / 2 - size / 2, width: size, height: size };
+  function fullVis() { return { cx: W() / 2, cy: H() / 2, s: 1, hv: H(), rv: R(), o: 1 }; }
+  function iconVis(r) { return { cx: r.x + r.width / 2, cy: r.y + r.height / 2, s: r.width / W(), hv: r.height, rv: ICON_R, o: 1 }; }
+  function centerRect() { const s = 62; return { x: W() / 2 - s / 2, y: H() / 2 - s / 2, width: s, height: s }; }
+
+  function applyVis(rec, v, noClip) {
+    rec.vis = Object.assign({}, v);
+    const s = Math.max(.01, v.s);
+    const x = v.cx - (W() * s) / 2;
+    const y = v.cy - (H() * s) / 2;
+    rec.win.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+    if (noClip) rec.win.style.clipPath = 'none';
+    else {
+      const iy = Math.max(0, (H() - v.hv / s) / 2);
+      rec.win.style.clipPath = `inset(${iy}px 0px ${iy}px 0px round ${Math.max(0, v.rv / s)}px)`;
+    }
+    rec.win.style.opacity = v.o == null ? '' : String(OS.clamp(v.o, 0, 1));
   }
 
-  /* ---------- lifecycle ---------- */
+  function clearVis(rec) {
+    rec.win.style.transform = '';
+    rec.win.style.clipPath = '';
+    rec.win.style.opacity = '';
+    rec.vis = fullVis();
+  }
+
+  function stopAnim(rec) {
+    if (rec && rec.anim) { rec.anim.stop(); rec.anim = null; }
+  }
+
+  /* ---------------- lifecycle ---------------- */
 
   function create(id) {
     const def = OS.apps[id];
@@ -65,6 +80,8 @@
       instance: {},
       lastUsed: Date.now(),
       statusBar: null,
+      vis: fullVis(),
+      anim: null,
     };
     rec.cover.style.opacity = '0';
     const ctx = {
@@ -98,13 +115,11 @@
   }
 
   function suspend(rec) {
+    stopAnim(rec);
     rec.win.getAnimations().forEach((a) => a.cancel());
     rec.win.classList.add('suspended');
-    rec.win.classList.remove('sw-anim', 'animating');
-    rec.win.style.transform = '';
-    rec.win.style.clipPath = '';
-    rec.win.style.opacity = '';
-    rec.win.style.transition = '';
+    rec.win.classList.remove('animating');
+    clearVis(rec);
     rec.cover.style.opacity = '0';
   }
 
@@ -115,7 +130,15 @@
     return OS.isDark() ? 'light' : 'dark';
   }
 
-  /* ---------- open ---------- */
+  /* ---------------- Home Screen zoom (anchored on the icon) ---------------- */
+
+  let zoomOrigin = null;
+  const reduced = () => !!OS.settings.reduceMotion;
+  /** Riduci movimento: apps cross-fade in place instead of zooming out of their icon */
+  function fadeVis() { return Object.assign(fullVis(), { s: .97, o: 0 }); }
+  function homeZoom(k) { OS.Home.zoom(1 + (reduced() ? 0 : HOME_ZOOM) * k, zoomOrigin); }
+
+  /* ---------------- open ---------------- */
 
   function open(id, opts) {
     opts = opts || {};
@@ -124,7 +147,7 @@
     if (OS.state.ccOpen) OS.CC.close();
     if (OS.state.ncOpen) OS.NC.close();
     if (OS.state.spotlightOpen) OS.Spotlight.close(true);
-    OS.Home.exitJiggle && OS.Home.exitJiggle();
+    if (OS.Home.exitJiggle) OS.Home.exitJiggle();
 
     if (mode === 'switcher') {
       const rec = running.get(id) || create(id);
@@ -132,230 +155,382 @@
       call(rec, 'onShow', opts.data);
       return;
     }
-    if (animating) finishAnimations();
 
     const prev = current;
     const rec = running.get(id) || create(id);
     rec.lastUsed = Date.now();
 
-    if (prev === rec && mode === 'app') {
+    if (prev === rec && mode === 'app' && !rec.closing) {
       call(rec, 'onShow', opts.data);
       return;
     }
 
     const originEl = mode === 'home' ? (opts.from || OS.Home.iconFor(id)) : null;
-    const r = originEl ? OS.rectOf(originEl) : centerRect();
+    const r = originEl ? OS.Home.restRect(originEl) : centerRect();
+    const target = reduced() ? fadeVis() : iconVis(r);
 
     if (prev && prev !== rec) {
       call(prev, 'onHide');
-      setTimeout(() => { if (current !== prev) suspend(prev); }, 380);
+      const p = prev;
+      setTimeout(() => { if (current !== p) suspend(p); }, 450);
     }
+
+    // re-opening an app that is still flying back into its icon: continue from where it is
+    const reopening = rec.closing && rec.anim;
+    stopAnim(rec);
+    rec.closing = false;
+    const start = reopening ? Object.assign({}, rec.vis) : target;
 
     current = rec;
     mode = 'app';
     showWin(rec);
-    OS.Home.setBehind(true);
     OS.chrome();
     call(rec, 'onShow', opts.data);
     OS.emit('app:open', id);
 
-    animating = true;
+    zoomOrigin = { x: target.cx, y: target.cy };
     rec.win.classList.add('animating');
-    const from = iconFrame(r);
-    const anim = rec.win.animate([from, fullFrame()], { duration: 560, easing: OPEN_EASE });
-    rec.cover.animate([{ opacity: 1 }, { opacity: 1, offset: .12 }, { opacity: 0 }], { duration: 360, easing: 'ease-out' });
-    anim.onfinish = anim.oncancel = () => {
-      rec.win.classList.remove('animating');
-      animating = false;
-    };
+    const end = fullVis();
+    const fromCover = reduced() ? 0 : reopening ? parseFloat(rec.cover.style.opacity) || 0 : 1;
+    applyVis(rec, start);
+    rec.cover.style.opacity = String(fromCover);
+    rec.anim = M().animate({
+      from: 0, to: 1, preset: 'appOpen',
+      onUpdate(p) {
+        const v = {};
+        Object.keys(end).forEach((k) => { v[k] = M().lerp(start[k], end[k], p); });
+        applyVis(rec, v);
+        rec.cover.style.opacity = String(fromCover * (1 - M().segment(p, .04, .32)));
+        homeZoom(Math.min(1, p));
+      },
+      onComplete() {
+        rec.anim = null;
+        rec.win.classList.remove('animating');
+        clearVis(rec);
+        rec.cover.style.opacity = '0';
+      },
+    });
   }
 
-  function finishAnimations() {
-    running.forEach((rec) => rec.win.getAnimations().forEach((a) => a.finish()));
-    animating = false;
-  }
+  /* ---------------- close into the icon ---------------- */
 
-  /* ---------- close to home ---------- */
-
+  /**
+   * Flies the current window back to its icon (or shrinks it in the middle
+   * when the icon is not on screen). `velocity` is in screen px/s.
+   */
   function home(opts) {
     opts = opts || {};
     if (OS.state.spotlightOpen) OS.Spotlight.close();
     if (mode === 'switcher') { switcherToHome(); return; }
     if (mode !== 'app' || !current) {
-      OS.Home.goToPage && OS.Home.goToPage(0);
+      if (OS.Home.goToPage) OS.Home.goToPage(0);
       return;
     }
     const rec = current;
     current = null;
     mode = 'home';
     call(rec, 'onHide');
-
-    const el = OS.Home.iconFor(rec.id);
-    const target = el ? iconFrame(OS.Home.restRect(el)) : (() => {
-      const f = iconFrame(centerRect());
-      return f;
-    })();
-    const from = opts.from || fullFrame();
-    OS.Home.setBehind(false);
     OS.chrome();
     OS.emit('app:close', rec.id);
 
-    animating = true;
+    const el = OS.Home.iconFor(rec.id);
+    const r = el ? OS.Home.restRect(el) : centerRect();
+    const target = reduced() ? fadeVis() : iconVis(r);
+    if (!el) target.o = 0;
+    zoomOrigin = { x: target.cx, y: target.cy };
+
+    stopAnim(rec);
+    rec.closing = true;
     rec.win.classList.add('animating');
-    rec.win.style.transform = '';
-    rec.win.style.clipPath = '';
-    const anim = rec.win.animate([from, target], {
-      duration: opts.fast ? 380 : 480, easing: CLOSE_EASE, fill: 'forwards',
+    const from = Object.assign({}, rec.vis || fullVis());
+    if (from.o == null) from.o = 1;
+    const v = opts.velocity || {};
+    const sStart = from.s;
+    const zoomStart = opts.homeK == null ? 1 : opts.homeK;
+    rec.anim = M().animate({
+      from, to: target, preset: 'appClose',
+      velocity: { cx: v.x || 0, cy: v.y || 0, s: v.s || 0, hv: v.hv || 0, rv: 0, o: 0 },
+      onUpdate(cur) {
+        applyVis(rec, cur);
+        const k = OS.clamp((cur.s - target.s) / Math.max(.001, sStart - target.s), 0, 1);
+        rec.cover.style.opacity = reduced() ? '0' : String(1 - M().segment(k, .12, .62));
+        homeZoom(zoomStart * k);
+      },
+      onComplete() {
+        rec.anim = null;
+        rec.closing = false;
+        if (current !== rec && mode !== 'switcher') suspend(rec);
+        homeZoom(0);
+      },
     });
-    rec.cover.animate([{ opacity: 0 }, { opacity: 0, offset: .25 }, { opacity: 1 }], { duration: opts.fast ? 300 : 380, easing: 'ease-in', fill: 'forwards' });
-    if (!el) rec.win.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 420, fill: 'forwards' });
-    anim.onfinish = () => {
-      animating = false;
-      if (current !== rec && mode !== 'switcher') suspend(rec);
-      rec.cover.getAnimations().forEach((a) => a.cancel());
-    };
   }
 
-  /* ---------- interactive home gesture ---------- */
+  /* ---------------- interactive Home gesture ---------------- */
 
-  let dragRec = null;
+  let drag = null;
   function dragStart() {
     if (mode !== 'app' || !current || OS.state.locked) return false;
-    if (animating) finishAnimations();
-    dragRec = current;
-    dragRec.win.getAnimations().forEach((a) => a.cancel());
-    dragRec.win.classList.add('animating');
+    const rec = current;
+    stopAnim(rec);
+    rec.closing = false;
+    if (!rec.vis) rec.vis = fullVis();
+    rec.win.classList.add('animating');
+    drag = { rec, from: Object.assign({}, rec.vis) };
     return true;
   }
 
-  function dragFrame(dx, dy) {
-    const p = OS.clamp(dy / (H() * .6), 0, 1);
-    const s = 1 - .5 * Math.pow(p, .85);
-    const cx = W() / 2 + dx * .7;
-    const bottom = H() - Math.max(0, dy) * .9;
-    const x = cx - (W() * s) / 2;
-    const y = bottom - H() * s;
-    return { f: frame(x, y, s, 0, OS.lerp(R(), 70, p) / s), p };
+  /** the card under the finger: shrinks as it rises, follows sideways */
+  function dragVis(dx, dyUp) {
+    const up = Math.max(0, dyUp);
+    const q = OS.clamp(up / (H() * .65), 0, 1);
+    const s = 1 - .52 * Math.pow(q, .8);
+    // pulling down instead of up meets rubber-band resistance
+    const pullDown = dyUp < 0 ? -M().rubber(dyUp, 160, .5) : 0;
+    return {
+      v: {
+        cx: W() / 2 + dx * .75,
+        cy: H() - up * .92 - (H() * s) / 2 + pullDown,
+        s,
+        hv: H() * s,
+        rv: M().lerp(R(), 42, Math.min(1, q * 2.2)),
+        o: 1,
+      },
+      q,
+    };
   }
 
-  function dragMove(dx, dy) {
-    if (!dragRec) return;
-    const { f, p } = dragFrame(dx, dy);
-    dragRec.win.style.transform = f.transform;
-    dragRec.win.style.clipPath = f.clipPath;
-    OS.Home.setProgress(1 - p);
+  function dragMove(dx, dyUp) {
+    if (!drag) return;
+    const { v, q } = dragVis(dx, dyUp);
+    applyVis(drag.rec, v);
+    drag.q = q;
+    zoomOrigin = zoomOrigin || { x: W() / 2, y: H() / 2 };
+    homeZoom(1 - q);
   }
 
-  function dragEnd(dx, dy, vy, held) {
-    if (!dragRec) return;
-    const rec = dragRec;
-    dragRec = null;
-    const { f } = dragFrame(dx, dy);
-    if (held && dy > 70) {
-      enterSwitcher(true);
+  /**
+   * Decides between going Home, opening the switcher and cancelling,
+   * using where the flick would come to rest (Apple's projection).
+   */
+  function dragEnd(dx, dyUp, vx, vyUp, held) {
+    if (!drag) return;
+    const { rec } = drag;
+    const q = drag.q || 0;
+    drag = null;
+    const projected = dyUp + M().project(vyUp, .985);
+    if (held && dyUp > 60 && Math.abs(vyUp) < 400) { enterSwitcher(true); return; }
+    if (projected > H() * .22 || (dyUp > 90 && vyUp > -200)) {
+      current = rec;
+      home({
+        velocity: { x: vx * .75, y: -vyUp * .92, s: -(.52 * .8 * vyUp) / (H() * .65) },
+        homeK: 1 - q,
+      });
       return;
     }
-    if (dy > 110 || (vy > .45 && dy > 30)) {
-      rec.win.style.transform = '';
-      rec.win.style.clipPath = '';
-      home({ from: f, fast: true });
-    } else {
-      // snap back
-      OS.Home.setProgress(null);
-      const anim = rec.win.animate([f, fullFrame()], { duration: 380, easing: OPEN_EASE });
-      rec.win.style.transform = '';
-      rec.win.style.clipPath = '';
-      anim.onfinish = () => rec.win.classList.remove('animating');
-      OS.Home.setBehind(true);
-    }
+    // cancel: spring back to full screen with the finger's velocity
+    stopAnim(rec);
+    rec.anim = M().animate({
+      from: Object.assign({}, rec.vis), to: fullVis(), preset: 'snappy',
+      velocity: { cx: vx * .75, cy: -vyUp * .92 },
+      onUpdate(cur) {
+        applyVis(rec, cur);
+        const k = OS.clamp((1 - cur.s) / .52, 0, 1);
+        homeZoom(1 - k);
+      },
+      onComplete() { rec.anim = null; rec.win.classList.remove('animating'); clearVis(rec); homeZoom(1); },
+    });
   }
 
-  /* ---------- App switcher ---------- */
+  /* ---------------- swipe along the Home bar: previous / next app ---------------- */
+
+  let hswipe = null;
+  let quickOrder = null;
+  let quickT = null;
+
+  function order() {
+    if (quickOrder) return quickOrder.filter((r) => running.has(r.id));
+    return Array.from(running.values()).sort((a, b) => b.lastUsed - a.lastUsed);
+  }
+
+  function hDragStart() {
+    if (mode !== 'app' || !current || OS.state.locked) return false;
+    const list = order();
+    const i = list.indexOf(current);
+    hswipe = { list, i, cur: current, prev: list[i + 1] || null, next: list[i - 1] || null };
+    stopAnim(current);
+    [hswipe.prev, hswipe.next].forEach((r) => { if (r) { stopAnim(r); showWin(r); r.win.classList.add('animating'); } });
+    current.win.style.zIndex = ++zTop;
+    current.win.classList.add('animating');
+    return true;
+  }
+
+  function hVis(offset) {
+    // the windows shrink a little while they slide, like iOS
+    const s = 1 - Math.min(.06, Math.abs(offset) / W() * .12);
+    return { cx: W() / 2 + offset, cy: H() / 2, s, hv: H() * s, rv: R(), o: 1 };
+  }
+
+  function hLayout(dx) {
+    const h = hswipe;
+    let off = dx;
+    if ((dx > 0 && !h.prev) || (dx < 0 && !h.next)) off = M().rubber(dx, W(), .45);
+    applyVis(h.cur, hVis(off));
+    if (h.prev) applyVis(h.prev, hVis(off - W() - 18));
+    if (h.next) applyVis(h.next, hVis(off + W() + 18));
+    return off;
+  }
+
+  function hDragMove(dx) { if (hswipe) hswipe.off = hLayout(dx); }
+
+  function hDragEnd(dx, vx) {
+    const h = hswipe;
+    if (!h) return;
+    hswipe = null;
+    const proj = dx + M().project(vx, .985);
+    let dir = 0;
+    if (proj > W() * .35 && h.prev) dir = 1;
+    else if (proj < -W() * .35 && h.next) dir = -1;
+    const target = dir * (W() + 18);
+    const incoming = dir === 1 ? h.prev : dir === -1 ? h.next : null;
+    const from = h.off == null ? dx : h.off;
+    const spring = M().animate({
+      from, to: target, velocity: vx, preset: 'snappy',
+      onUpdate(off) {
+        applyVis(h.cur, hVis(off));
+        if (h.prev) applyVis(h.prev, hVis(off - W() - 18));
+        if (h.next) applyVis(h.next, hVis(off + W() + 18));
+      },
+      onComplete() {
+        [h.cur, h.prev, h.next].forEach((r) => { if (r) r.win.classList.remove('animating'); });
+        if (incoming) {
+          call(h.cur, 'onHide');
+          suspend(h.cur);
+          [h.prev, h.next].forEach((r) => { if (r && r !== incoming) suspend(r); });
+          clearVis(incoming);
+          incoming.win.style.zIndex = ++zTop;
+          current = incoming;
+          call(incoming, 'onShow');
+          OS.chrome();
+          // rapid swipes keep walking the same history; it settles after a pause
+          quickOrder = h.list;
+          clearTimeout(quickT);
+          quickT = setTimeout(() => { quickOrder = null; if (current) current.lastUsed = Date.now(); }, 2500);
+        } else {
+          clearVis(h.cur);
+          [h.prev, h.next].forEach((r) => { if (r) suspend(r); });
+        }
+      },
+    });
+    h.cur.anim = spring;
+  }
+
+  /* ---------------- App switcher ---------------- */
 
   let sx = 0;
+  let sxAnim = null;
   let swOrder = [];
   const K = () => (OS.state.width < 380 ? .6 : .64);
   const spacing = () => W() * K() * .86;
 
-  function cardPos(i) {
+  function cardVis(i, extra) {
     const k = K();
-    const cw = W() * k, ch = H() * k;
     const base = i - sx;
-    const x = W() / 2 - cw / 2 - base * spacing();
-    const y = (H() - ch) / 2 + 6;
-    return { x, y, k };
+    // cards further back slide a little less: a hint of depth like iOS
+    const depth = base > 0 ? base * spacing() * .06 : 0;
+    const v = { cx: W() / 2 - base * spacing() + depth, cy: H() / 2 + 6, s: k, hv: H() * k, rv: R() * k, o: 1 };
+    return Object.assign(v, extra || {});
   }
 
-  function layoutCards(animate) {
+  function layoutCards() {
     swOrder.forEach((rec, i) => {
-      const { x, y, k } = cardPos(i);
-      rec.win.classList.toggle('sw-anim', !!animate);
-      rec.win.style.transition = animate ? 'transform .5s var(--ease-spring), opacity .3s ease' : 'none';
-      rec.win.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
+      if (rec.anim) return;
+      applyVis(rec, Object.assign(cardVis(i), rec.lift || {}), true);
       rec.win.style.zIndex = 100 - i;
-      rec.win.style.clipPath = 'none';
+    });
+  }
+
+  function springCards(opts) {
+    opts = opts || {};
+    swOrder.forEach((rec, i) => {
+      stopAnim(rec);
+      const to = cardVis(i);
+      const from = Object.assign({}, rec.vis || to);
+      if (from.o == null) from.o = 1;
+      rec.win.style.zIndex = 100 - i;
+      const delay = opts.stagger ? i * 25 : 0;
+      const run = () => {
+        rec.anim = M().animate({
+          from, to, preset: opts.preset || 'snappy', velocity: opts.velocity && opts.velocity(rec, i),
+          onUpdate(cur) { applyVis(rec, cur, !opts.clip || rec !== opts.clip); },
+          onComplete() { rec.anim = null; applyVis(rec, to, true); },
+        });
+      };
+      if (delay) setTimeout(run, delay); else run();
     });
   }
 
   function enterSwitcher(fromDrag) {
-    if (OS.state.locked) return;
-    if (mode === 'switcher') return;
-    if (animating) finishAnimations();
-    OS.Home.exitJiggle && OS.Home.exitJiggle();
+    if (OS.state.locked || mode === 'switcher') return;
+    if (OS.Home.exitJiggle) OS.Home.exitJiggle();
     if (OS.state.spotlightOpen) OS.Spotlight.close(true);
     const prevMode = mode;
+    const wasCurrent = current;
     swOrder = Array.from(running.values()).sort((a, b) => b.lastUsed - a.lastUsed);
     mode = 'switcher';
     layer.classList.add('switcher');
     layer.classList.toggle('empty', !swOrder.length);
+    if (sxAnim) sxAnim.stop();
     sx = 0;
-    OS.Home.setBehind(false);
-    OS.Home.setProgress(null);
+    homeZoom(0);
     if (current) call(current, 'onHide');
 
     swOrder.forEach((rec, i) => {
-      rec.win.getAnimations().forEach((a) => a.cancel());
       rec.cover.style.opacity = '0';
+      rec.win.classList.remove('animating');
       if (rec.win.classList.contains('suspended')) {
         rec.win.classList.remove('suspended');
-        const { x, y, k } = cardPos(i);
-        rec.win.style.transition = 'none';
-        rec.win.style.clipPath = 'none';
-        rec.win.style.transform = `translate(${x - (prevMode === 'app' ? W() * .4 : 0)}px, ${y + (prevMode === 'app' ? 0 : H() * .25)}px) scale(${k})`;
-        rec.win.style.opacity = prevMode === 'app' ? '1' : '0';
-      } else if (!fromDrag) {
-        rec.win.style.transform = 'translate(0px, 0px) scale(1)';
+        // older apps slide in from the left (from an app) or rise from below (from Home)
+        const start = cardVis(i, prevMode === 'app' ? { cx: cardVis(i).cx - W() * .5 } : { cy: cardVis(i).cy + H() * .3, o: 0 });
+        applyVis(rec, start, true);
+      } else if (!fromDrag || rec !== wasCurrent) {
+        applyVis(rec, rec.vis || fullVis());
       }
-      rec.win.classList.remove('animating');
     });
-    void layer.offsetWidth;
-    swOrder.forEach((rec) => { rec.win.style.opacity = ''; });
-    layoutCards(true);
+    springCards({ clip: fromDrag ? wasCurrent : null, stagger: !fromDrag && prevMode !== 'app' });
     OS.chrome();
     OS.emit('switcher', true);
   }
 
   function switcherOpen(rec) {
     layer.classList.remove('switcher', 'empty');
+    const idx = swOrder.indexOf(rec);
     const others = swOrder.filter((r) => r !== rec);
     mode = 'app';
     current = rec;
     rec.lastUsed = Date.now();
-    if (!swOrder.includes(rec)) showWin(rec);
+    if (!swOrder.includes(rec)) { showWin(rec); applyVis(rec, cardVis(0)); }
     rec.win.classList.remove('suspended');
-    rec.win.style.transition = 'transform .5s var(--ease-spring)';
-    rec.win.style.zIndex = ++zTop + 100;
-    rec.win.style.transform = 'translate(0px, 0px) scale(1)';
-    others.forEach((o) => { o.win.style.transition = 'opacity .25s ease, transform .5s var(--ease-spring)'; o.win.style.opacity = '0'; });
-    setTimeout(() => {
-      rec.win.style.transition = '';
-      rec.win.style.transform = '';
-      rec.win.style.clipPath = '';
-      rec.win.style.zIndex = ++zTop;
-      rec.win.classList.remove('sw-anim');
-      others.forEach((o) => suspend(o));
-    }, 520);
-    OS.Home.setBehind(true);
+    rec.win.style.zIndex = ++zTop + 200;
+    stopAnim(rec);
+    const from = Object.assign({}, rec.vis);
+    rec.anim = M().animate({
+      from, to: fullVis(), preset: 'appOpen',
+      onUpdate(cur) { applyVis(rec, cur); },
+      onComplete() { rec.anim = null; clearVis(rec); rec.win.style.zIndex = ++zTop; },
+    });
+    // the other cards slide out of the way, older to the left, newer to the right
+    others.forEach((o) => {
+      stopAnim(o);
+      const j = swOrder.indexOf(o);
+      const dir = j > idx ? -1 : 1;
+      const f = Object.assign({}, o.vis);
+      o.anim = M().animate({
+        from: f, to: Object.assign({}, f, { cx: f.cx + dir * W() * .9, o: .2 }), preset: 'snappy',
+        onUpdate(cur) { applyVis(o, cur, true); },
+        onComplete() { o.anim = null; suspend(o); },
+      });
+    });
+    homeZoom(1);
     OS.chrome();
     call(rec, 'onShow');
     OS.emit('switcher', false);
@@ -366,37 +541,53 @@
     mode = 'home';
     current = null;
     swOrder.forEach((rec) => {
-      rec.win.style.transition = 'opacity .25s ease, transform .4s var(--ease-spring)';
-      rec.win.style.opacity = '0';
-      const t = rec.win.style.transform;
-      rec.win.style.transform = t.replace(/scale\(([\d.]+)\)/, (m, k) => `scale(${k * .9})`);
+      stopAnim(rec);
+      const f = Object.assign({}, rec.vis);
+      rec.anim = M().animate({
+        from: f, to: Object.assign({}, f, { s: f.s * .82, hv: f.hv * .82, cy: f.cy + 40, o: 0 }), preset: 'smooth',
+        onUpdate(cur) { applyVis(rec, cur, true); },
+        onComplete() { rec.anim = null; if (current !== rec) suspend(rec); },
+      });
     });
-    const list = swOrder.slice();
-    setTimeout(() => list.forEach((rec) => { if (current !== rec) suspend(rec); }), 300);
-    OS.Home.setBehind(false);
+    zoomOrigin = { x: W() / 2, y: H() / 2 };
+    OS.Home.zoom(1.08, zoomOrigin);
+    requestAnimationFrame(() => OS.Home.springZoom(1));
     OS.chrome();
     OS.emit('switcher', false);
   }
 
-  function kill(rec) {
+  function kill(rec, vyUp) {
     call(rec, 'onHide');
     call(rec, 'onDestroy');
     running.delete(rec.id);
     swOrder = swOrder.filter((r) => r !== rec);
     if (current === rec) current = null;
-    const pos = rec.win.style.transform;
-    rec.win.style.transition = 'transform .35s cubic-bezier(.4,0,1,1), opacity .35s';
-    rec.win.style.transform = pos.replace(/translate\(([-\d.]+)px, ([-\d.]+)px\)/, (m, x) => `translate(${x}px, ${-H()}px)`);
-    rec.win.style.opacity = '0';
-    setTimeout(() => rec.win.remove(), 360);
+    stopAnim(rec);
+    const f = Object.assign({}, rec.vis);
+    rec.anim = M().animate({
+      from: f, to: Object.assign({}, f, { cy: -H() * .6, o: .4 }), preset: 'snappy', velocity: { cy: -(vyUp || 1200) },
+      onUpdate(cur) { applyVis(rec, cur, true); },
+      onComplete() { rec.win.remove(); },
+    });
     OS.emit('app:killed', rec.id);
     if (!swOrder.length) {
       layer.classList.add('empty');
       setTimeout(() => { if (mode === 'switcher' && !swOrder.length) switcherToHome(); }, 450);
     } else {
-      sx = OS.clamp(sx, 0, swOrder.length - 1);
-      setTimeout(() => layoutCards(true), 60);
+      const max = swOrder.length - 1;
+      if (sxAnim) { sxAnim.stop(); sxAnim = null; }
+      sx = OS.clamp(Math.round(sx), 0, max);
+      springCards();
     }
+  }
+
+  function animateScroll(target, velocity) {
+    if (sxAnim) sxAnim.stop();
+    sxAnim = M().animate({
+      from: sx, to: target, velocity, preset: 'snappy',
+      onUpdate(v) { sx = v; layoutCards(); },
+      onComplete() { sxAnim = null; },
+    });
   }
 
   function installSwitcherGestures() {
@@ -405,30 +596,37 @@
       if (mode !== 'switcher') return;
       const p = OS.point(e);
       const winEl = e.target.closest('.app-window');
-      d = { x: p.x, y: p.y, t: performance.now(), sx0: sx, rec: winEl ? running.get(winEl.dataset.app) : null, axis: null, id: e.pointerId };
+      if (sxAnim) { sxAnim.stop(); sxAnim = null; }
+      const tr = M().tracker();
+      tr.add(p.x, p.y);
+      d = { x: p.x, y: p.y, sx0: sx, rec: winEl ? running.get(winEl.dataset.app) : null, axis: null, id: e.pointerId, tr };
     });
     window.addEventListener('pointermove', (e) => {
       if (!d || e.pointerId !== d.id || mode !== 'switcher') return;
       const p = OS.point(e);
+      d.tr.add(p.x, p.y);
       const dx = p.x - d.x, dy = p.y - d.y;
       if (!d.axis) {
         if (Math.abs(dx) > 8) d.axis = 'x';
         else if (dy < -8 && d.rec) d.axis = 'y';
         else return;
+        swOrder.forEach((r) => stopAnim(r));
       }
       if (d.axis === 'x') {
         let v = d.sx0 + dx / spacing();
         const max = Math.max(0, swOrder.length - 1);
-        if (v < 0) v = v * .35;
-        if (v > max) v = max + (v - max) * .35;
+        if (v < 0) v = -M().rubber(-v * spacing(), W(), .5) / spacing();
+        if (v > max) v = max + M().rubber((v - max) * spacing(), W(), .5) / spacing();
         sx = v;
-        layoutCards(false);
+        layoutCards();
       } else {
         const i = swOrder.indexOf(d.rec);
         if (i < 0) return;
-        const { x, y, k } = cardPos(i);
-        d.rec.win.style.transition = 'none';
-        d.rec.win.style.transform = `translate(${x}px, ${y + Math.min(0, dy)}px) scale(${k})`;
+        // the card follows the finger up; pulling down resists
+        const off = dy < 0 ? dy : M().rubber(dy, 300, .4);
+        d.rec.lift = { cy: cardVis(i).cy + off, s: K() * (1 - Math.min(.08, Math.max(0, -off) / 3000)) };
+        d.rec.lift.hv = H() * d.rec.lift.s;
+        layoutCards();
       }
     });
     window.addEventListener('pointerup', (e) => {
@@ -437,21 +635,22 @@
       d = null;
       if (mode !== 'switcher') return;
       const p = OS.point(e);
-      const dx = p.x - g.x, dy = p.y - g.y;
-      const dt = Math.max(1, performance.now() - g.t);
+      const dy = p.y - g.y;
+      const vel = g.tr.velocity();
       if (!g.axis) {
         if (g.rec) switcherOpen(g.rec);
         else switcherToHome();
         return;
       }
       if (g.axis === 'x') {
-        const v = dx / dt;
-        sx = OS.clamp(Math.round(sx + v * 1.2), 0, Math.max(0, swOrder.length - 1));
-        layoutCards(true);
-      } else if (dy < -110 || dy / dt < -.6) {
-        kill(g.rec);
+        const max = Math.max(0, swOrder.length - 1);
+        const proj = sx + M().project(vel.x, .985) / spacing();
+        animateScroll(OS.clamp(Math.round(proj), 0, max), vel.x / spacing());
       } else {
-        layoutCards(true);
+        const rec = g.rec;
+        rec.lift = null;
+        if (dy + M().project(vel.y, .985) < -160) kill(rec, -vel.y);
+        else springCards({ velocity: (r) => (r === rec ? { cy: vel.y } : null) });
       }
     });
   }
@@ -468,10 +667,11 @@
     init, open, home, kill,
     enterSwitcher,
     dragStart, dragMove, dragEnd,
+    hDragStart, hDragMove, hDragEnd,
     chromeStyle,
     running,
     get current() { return current; },
     get mode() { return mode; },
-    get animating() { return animating; },
+    get animating() { return !!(current && current.anim); },
   };
 })();

@@ -61,14 +61,14 @@
         if (OS.settings.siriAI && !OS.state.locked) kind = p.x > W * .66 ? 'cc' : p.x < W * .34 ? 'nc' : 'ask';
         else kind = p.x > W * .6 ? 'cc' : 'nc';
         if (onIsland && kind !== 'ask') return;
-        g = { kind, x: p.x, y: p.y, t: performance.now(), id: e.pointerId, active: false };
+        g = { kind, x: p.x, y: p.y, t: performance.now(), id: e.pointerId, active: false, tr: OS.motion.tracker() };
         if (!onIsland) e.stopPropagation();
         return;
       }
 
       // bottom edge → home / app switcher
       if (p.y > H - BOTTOM_ZONE && !OS.state.locked && !e.target.closest('.sheet-wrap')) {
-        g = { kind: 'home', x: p.x, y: p.y, t: performance.now(), lastMove: performance.now(), id: e.pointerId, active: false, mode: OS.Apps.mode };
+        g = { kind: 'home', x: p.x, y: p.y, t: performance.now(), lastMove: performance.now(), id: e.pointerId, active: false, mode: OS.Apps.mode, tr: OS.motion.tracker() };
         e.stopPropagation();
       }
     }, true);
@@ -76,6 +76,7 @@
     window.addEventListener('pointermove', (e) => {
       if (!g || e.pointerId !== g.id) return;
       const p = OS.point(e);
+      g.tr.add(p.x, p.y);
       const dx = p.x - g.x, dy = p.y - g.y;
       if (!g.active) {
         if (Math.hypot(dx, dy) < 6) return;
@@ -83,13 +84,18 @@
         if (g.kind === 'cc') OS.CC.beginDrag();
         if (g.kind === 'nc') OS.NC.beginDrag();
         if (g.kind === 'ask') { OS.Island.suppressNextClick(); OS.Spotlight.beginPull(); }
-        if (g.kind === 'home') g.app = g.mode === 'app' && OS.Apps.dragStart();
+        if (g.kind === 'home' && g.mode === 'app') {
+          // sliding along the Home bar switches apps; moving up goes Home
+          if (Math.abs(dx) > Math.abs(dy) * 1.2) g.h = OS.Apps.hDragStart();
+          else g.app = OS.Apps.dragStart();
+        }
       }
-      if (g.kind === 'cc') OS.CC.setProgress(dy / 260);
-      if (g.kind === 'nc') OS.NC.setProgress(dy / (OS.state.height * .7));
+      if (g.kind === 'cc') OS.CC.drag(dy);
+      if (g.kind === 'nc') OS.NC.drag(dy);
       if (g.kind === 'ask') OS.Spotlight.pull(dy);
+      if (g.kind === 'home' && g.h) OS.Apps.hDragMove(dx);
       if (g.kind === 'home' && g.app) {
-        if (Math.abs(p.y - (g.py || p.y)) > 2 || Math.abs(p.x - (g.px || p.x)) > 2) g.lastMove = performance.now();
+        if (Math.abs(p.y - (g.py == null ? p.y : g.py)) > 1.5 || Math.abs(p.x - (g.px == null ? p.x : g.px)) > 1.5) g.lastMove = performance.now();
         g.px = p.x; g.py = p.y;
         OS.Apps.dragMove(dx, -dy);
       }
@@ -100,36 +106,27 @@
       const s = g;
       g = null;
       const p = OS.point(e);
+      s.tr.add(p.x, p.y);
       const dx = p.x - s.x, dy = p.y - s.y;
-      const dt = Math.max(1, performance.now() - s.t);
-      const v = dy / dt;
+      const vel = s.tr.velocity();
 
-      if (s.kind === 'cc') {
-        if (!s.active) return;
-        OS.CC.endDrag(dy > 70 || v > .4);
-        return;
-      }
-      if (s.kind === 'nc') {
-        if (!s.active) return;
-        OS.NC.endDrag(dy > 90 || v > .4);
-        return;
-      }
-      if (s.kind === 'ask') {
-        if (s.active) OS.Spotlight.endPull(dy, v);
-        return;
-      }
+      if (s.kind === 'cc') { if (s.active) OS.CC.release(dy, vel.y); return; }
+      if (s.kind === 'nc') { if (s.active) OS.NC.release(dy, vel.y); return; }
+      if (s.kind === 'ask') { if (s.active) OS.Spotlight.endPull(dy, vel.y); return; }
       // home gesture
       if (!s.active) {
         // a click on the home indicator acts like the home gesture (desktop friendly)
         goHome();
         return;
       }
+      if (s.h) { OS.Apps.hDragEnd(dx, vel.x); return; }
       if (s.app) {
-        const held = performance.now() - s.lastMove > 160;
-        OS.Apps.dragEnd(dx, -dy, -v, held);
+        // a finger that rested before lifting asks for the app switcher
+        const held = performance.now() - s.lastMove > 140;
+        OS.Apps.dragEnd(dx, -dy, vel.x, -vel.y, held);
         return;
       }
-      if (-dy > 40) goHome();
+      if (-dy > 40 || vel.y < -500) goHome();
     };
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);

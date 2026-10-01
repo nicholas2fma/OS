@@ -72,23 +72,35 @@
   color: #fff;
   overflow: hidden;
   cursor: pointer;
+  /* the island morphs on its own spring: quick, with a visible elastic overshoot */
   transition:
-    width .55s var(--ease-bounce),
-    height .55s var(--ease-bounce),
-    margin-left .55s var(--ease-bounce),
-    border-radius .55s var(--ease-bounce),
-    transform .3s var(--ease-bounce);
+    width var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)),
+    height var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)),
+    margin-left var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)),
+    border-radius var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)),
+    transform var(--spring-bouncy-dur) var(--ease-bounce);
   box-shadow: 0 0 0 .5px rgba(255, 255, 255, .04);
 }
 #island:active { transform: scale(.97); }
+/* content dissolves in and out of the black, blurring and scaling like the real island */
 #island .isl-compact,
 #island .isl-expanded,
 #island .isl-flash {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity .25s ease;
+  filter: blur(7px);
+  transform: scale(.82);
+  transition: opacity .2s ease, filter .22s ease, transform .3s ease;
   pointer-events: none;
+}
+#island .isl-expanded { transform-origin: 50% 0; transform: scale(.6, .4); }
+#island.compact .isl-compact,
+#island.expanded .isl-expanded,
+#island.flash .isl-flash {
+  filter: none;
+  transform: none;
+  transition: opacity .3s ease, filter .35s ease, transform var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce));
 }
 #island .isl-compact {
   display: flex;
@@ -161,11 +173,13 @@
   z-index: 80;
   display: grid;
   place-items: center;
-  transform: scale(0);
-  transition: transform .5s var(--ease-bounce), margin-left .5s var(--ease-bounce);
+  /* the second activity buds off the island's edge like a droplet */
+  transform: translateX(-38px) scale(.35, .6);
+  opacity: 0;
+  transition: transform var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)), margin-left var(--spring-island-dur, .8s) var(--spring-island, var(--ease-bounce)), opacity .2s;
   cursor: pointer;
 }
-#island-bubble.show { transform: scale(1); }
+#island-bubble.show { transform: none; opacity: 1; }
 
 /* ---------- Home indicator ---------- */
 
@@ -187,7 +201,7 @@
   height: 5px;
   border-radius: 3px;
   background: #fff;
-  transition: background .3s, transform .3s var(--ease-bounce);
+  transition: background .3s, transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 #homebar.dark-content .homebar-pill { background: #000; }
 #homebar.off { opacity: 0; pointer-events: none; }
@@ -195,13 +209,12 @@
 
 /* ---------- Home screen ---------- */
 
+/* zoom and paging are spring-driven from homescreen.js */
 #home {
   transform-origin: 50% 50%;
-  transition: transform .5s var(--ease-spring), opacity .35s ease, filter .35s ease;
+  transition: opacity .35s ease, filter .35s ease;
   touch-action: none;
 }
-#home.behind-app { transform: scale(.92); }
-#home.zoomed { transform: scale(1.12); opacity: 0; }
 #home.blurred { filter: blur(14px) brightness(.85); }
 
 .home-pages {
@@ -210,7 +223,6 @@
   display: flex;
   will-change: transform;
 }
-.home-pages.anim { transition: transform .5s var(--ease-spring); }
 .home-page {
   position: relative;
   flex: 0 0 100%;
@@ -261,7 +273,7 @@
   z-index: 200;
   pointer-events: none;
   transform: scale(1.12);
-  transition: transform .2s var(--ease-bounce);
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce);
   filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .35));
 }
 
@@ -335,15 +347,18 @@
 }
 
 /* jiggle mode */
+/* each icon wobbles with its own phase and period (set in homescreen.js), with a
+   tiny bob, the way SpringBoard does it; big widgets wobble less */
 @keyframes jiggle {
-  0% { transform: rotate(-1.6deg); }
-  50% { transform: rotate(1.6deg); }
-  100% { transform: rotate(-1.6deg); }
+  0% { transform: rotate(calc(var(--ja, 1.5deg) * -1)) translateY(0); }
+  25% { transform: rotate(0deg) translateY(-.7px); }
+  50% { transform: rotate(var(--ja, 1.5deg)) translateY(0); }
+  75% { transform: rotate(0deg) translateY(.7px); }
+  100% { transform: rotate(calc(var(--ja, 1.5deg) * -1)) translateY(0); }
 }
-#home.jiggle .home-item { animation: jiggle .28s ease-in-out infinite; }
-#home.jiggle .home-item:nth-child(2n) { animation-delay: -.14s; animation-duration: .3s; }
-#home.jiggle .home-item:nth-child(3n) { animation-delay: -.07s; }
-#home.jiggle .dock .home-item { animation-duration: .32s; }
+#home.jiggle .home-item { animation: jiggle var(--jdur, .27s) linear var(--jd, 0s) infinite; }
+#home.jiggle .home-item[data-widget] { --ja: .7deg; }
+#home.jiggle .home-item[data-size="xl"] { --ja: .3deg; }
 .remove-btn {
   position: absolute;
   top: -7px;
@@ -413,7 +428,7 @@
   font-weight: 600;
   color: #fff;
   z-index: 2;
-  transition: opacity .25s, transform .3s var(--ease-bounce);
+  transition: opacity .25s, transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 .home-search:active { transform: translateX(-50%) scale(1.08); }
 .page-dots {
@@ -631,8 +646,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   background-size: cover;
   background-position: center;
 }
-#lock.anim { transition: transform .5s var(--ease-spring), opacity .45s ease; }
-#lock.unlocked { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+#lock.unlocked { visibility: hidden; pointer-events: none; }
 #lock .lock-fade { transition: opacity .3s; }
 
 .lock-icon {
@@ -643,7 +657,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   opacity: .95;
 }
 .lock-icon svg { width: 22px; height: 22px; }
-.lock-icon.open svg { animation: lock-pop .4s var(--ease-bounce); }
+.lock-icon.open svg { animation: lock-pop var(--spring-bouncy-dur) var(--ease-bounce); }
 @keyframes lock-pop { 0% { transform: scale(.6); } 100% { transform: scale(1); } }
 
 .lock-date {
@@ -704,7 +718,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   gap: 10px;
 }
 .lock-media { overflow: hidden; }
-.lm-inner { display: flex; flex-direction: column; gap: 10px; transition: transform .35s var(--ease-spring); position: relative; z-index: 2; }
+.lm-inner { display: flex; flex-direction: column; gap: 10px; transition: transform var(--spring-smooth-dur) var(--ease-spring); position: relative; z-index: 2; }
 .lock-media.swiped .lm-inner { transform: translateX(-104px); }
 .lm-clear { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); height: 42px; padding: 0 16px; border-radius: 21px; background: rgba(255, 255, 255, .22); color: #fff; font-size: 15px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 1; }
 .lock-media.swiped .lm-clear { opacity: 1; pointer-events: auto; }
@@ -756,7 +770,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   text-align: left;
   width: 100%;
   touch-action: none;
-  transition: transform .35s var(--ease-spring), opacity .3s;
+  transition: transform var(--spring-smooth-dur) var(--ease-spring), opacity .3s;
 }
 .notif .app-icon { grid-row: span 2; width: 38px; height: 38px; border-radius: 9px; align-self: center; }
 .notif .n-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -783,7 +797,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   pointer-events: auto;
   color: var(--label);
   transform: translateY(-190%);
-  transition: transform .55s var(--ease-bounce);
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce);
   --g-clear: rgba(250, 250, 252, .62);
   --g-tint: rgba(250, 250, 252, .95);
   --g-blur: 18px;
@@ -819,7 +833,6 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   align-items: center;
   overflow: hidden;
 }
-#nc.anim .nc-sheet { transition: transform .5s var(--ease-spring); }
 #nc.open { pointer-events: auto; }
 #nc .nc-list {
   position: absolute;
@@ -906,7 +919,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   display: grid;
   place-items: center;
   color: #fff;
-  transition: background-color .25s, color .25s, transform .3s var(--ease-bounce);
+  transition: background-color .25s, color .25s, transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 .cc-round svg { width: 26px; height: 26px; position: relative; z-index: 2; }
 .cc-round:active { transform: scale(1.1); }
@@ -1013,10 +1026,8 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   -webkit-backdrop-filter: blur(30px) saturate(140%);
   backdrop-filter: blur(30px) saturate(140%);
   opacity: 0;
-  transition: opacity .3s ease;
 }
 #spotlight.open { pointer-events: auto; }
-#spotlight.open .sp-backdrop { opacity: 1; }
 #spotlight .sp-body {
   position: absolute;
   inset: 0;
@@ -1025,10 +1036,8 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   flex-direction: column;
   color: #fff;
   opacity: 0;
-  transform: translateY(-20px);
-  transition: opacity .3s ease, transform .4s var(--ease-spring);
+  transform-origin: 50% 0;
 }
-#spotlight.open .sp-body { opacity: 1; transform: none; }
 .sp-results { flex: 1; overflow-y: auto; padding-bottom: 20px; scrollbar-width: none; }
 .sp-results::-webkit-scrollbar { display: none; }
 .sp-section { margin-bottom: 18px; }
@@ -1082,7 +1091,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   overflow: hidden;
   opacity: 0;
   transform: translateX(-60px) scaleY(.9);
-  transition: opacity .25s, transform .4s var(--ease-bounce);
+  transition: opacity .25s, transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 .hud-volume.show { opacity: 1; transform: none; }
 .hud-volume .fill { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; transition: height .15s; }
@@ -1140,9 +1149,9 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   background: #000;
   opacity: 0;
   transition:
-    width .55s var(--ease-bounce),
-    height .55s var(--ease-bounce),
-    border-radius .55s var(--ease-bounce),
+    width var(--spring-bouncy-dur) var(--ease-bounce),
+    height var(--spring-bouncy-dur) var(--ease-bounce),
+    border-radius var(--spring-bouncy-dur) var(--ease-bounce),
     background-color .3s,
     opacity .25s ease;
 }
@@ -1230,7 +1239,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
 .sp-chip { padding: 9px 14px; border-radius: 19px; font-size: 14px; font-weight: 500; color: #fff; }
 
 /* iOS 27 with Siri AI: banners slide in from the left */
-#banners .notif.from-left { transform: translateX(-115%); transition: transform .6s var(--ease-bounce); }
+#banners .notif.from-left { transform: translateX(-115%); transition: transform var(--spring-bouncy-dur) var(--ease-bounce); }
 #banners .notif.from-left.show { transform: none; }
 #banners .notif.from-left.hide { transform: translateX(-115%); transition-duration: .35s; transition-timing-function: ease-in; }
 
@@ -1255,7 +1264,7 @@ body.fullscreen #apps.switcher .app-window { border-radius: 44px; }
   cursor: nwse-resize;
 }
 #home.jiggle .resize-handle { display: grid; }
-.widget-box { transition: transform .2s var(--ease-bounce); }
+.widget-box { transition: transform var(--spring-bouncy-dur) var(--ease-bounce); }
 
 .wd-row { display: flex; justify-content: space-between; align-items: flex-start; }
 .wd-right { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 600; text-align: right; gap: 2px; }

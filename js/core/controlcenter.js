@@ -54,6 +54,8 @@
     grid.innerHTML = html();
     grid.querySelector('.cc-media').innerHTML = mediaHTML();
     paintSliders();
+    collect();
+    paint(value.value);
   }
 
   function paintSliders() {
@@ -67,29 +69,92 @@
     document.getElementById('dimmer').style.opacity = String((1 - OS.settings.brightness) * .72);
   }
 
-  function setProgress(p, animate) {
-    progress = OS.clamp(p, 0, 1);
-    const t = animate ? 'opacity .4s ease, transform .5s var(--ease-spring)' : 'none';
-    backdrop.style.transition = animate ? 'opacity .4s ease' : 'none';
-    body.style.transition = t;
-    backdrop.style.opacity = progress;
-    body.style.opacity = progress;
-    body.style.transform = `translateY(${(1 - progress) * -40}px) scale(${.9 + .1 * progress})`;
+  /* ---------- motion: the modules grow out of the top-right corner, nearest first ---------- */
+
+  let mods = [];
+  let dragEndedAt = 0;
+  const justDragged = () => performance.now() - dragEndedAt < 80;
+  const travel = () => OS.state.height * .34;
+  const value = OS.motion.value(0, paint);
+
+  /** caches each module's distance from the corner the finger pulls from */
+  function collect() {
+    const W = body.clientWidth || OS.state.width;
+    const reach = Math.hypot(W, OS.state.height * .75);
+    mods = Array.from(body.querySelectorAll('.cc-top > button, .cc-appset, .cc-grid > *')).map((el) => {
+      let x = 0, y = 0, n = el;
+      while (n && n !== body) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; }
+      const cx = x + el.offsetWidth / 2, cy = y + el.offsetHeight / 2;
+      return { el, dx: cx - (W - 30), dy: cy - 20, cy, d: OS.clamp(Math.hypot(W - 30 - cx, cy) / reach, 0, 1) };
+    });
   }
 
-  function open() {
-    if (!OS.state.ccOpen) render();
+  function paint(p) {
+    progress = p;
+    const q = OS.motion.clamp01(p);
+    const seg = OS.motion.segment;
+    backdrop.style.opacity = String(seg(p, 0, .6));
+    body.style.visibility = p <= .001 ? 'hidden' : '';
+    body.style.opacity = '1';
+    const over = Math.max(0, p - 1);
+    const H = OS.state.height;
+    mods.forEach((m) => {
+      // modules further from the corner start later and travel further
+      const lp = seg(q, m.d * .38, m.d * .38 + .62);
+      if (lp >= 1 && !over) {
+        m.el.style.transform = '';
+        m.el.style.opacity = '';
+        m.el.style.transition = '';
+        return;
+      }
+      const k = 1 - lp;
+      // over-pulling stretches the grid like a rubber sheet
+      const stretch = over * H * .22 * (m.cy / H);
+      m.el.style.transition = 'background-color .25s, color .25s';
+      m.el.style.opacity = String(seg(lp, 0, .55));
+      m.el.style.transform = `translate(${-m.dx * k * .12}px, ${-m.dy * k * .22 - k * 26 + stretch}px) scale(${.78 + .22 * lp})`;
+    });
+  }
+
+  function setProgress(p, animate) {
+    if (animate) value.spring(OS.clamp(p, 0, 1), { preset: 'smooth' });
+    else value.set(p);
+  }
+
+  function show() {
+    if (!cc.classList.contains('open')) render();
     OS.state.ccOpen = true;
     cc.classList.add('open');
-    setProgress(1, true);
     OS.chrome();
   }
 
-  function close() {
+  function open(velocity) {
+    show();
+    value.spring(1, { preset: { response: .44, damping: .8 }, velocity });
+  }
+
+  function close(velocity) {
     OS.state.ccOpen = false;
     cc.classList.remove('open');
-    setProgress(0, true);
+    value.spring(0, { preset: { response: .38, damping: 1 }, velocity });
     OS.chrome();
+  }
+
+  /** finger-driven progress: 1:1 until fully open, then rubber band */
+  function fromDrag(dy, base) {
+    const T = travel();
+    const raw = base * T + dy;
+    if (raw <= T) return raw / T;
+    return 1 + OS.motion.rubber(raw - T, OS.state.height * .6) / T;
+  }
+
+  function release(vy) {
+    const T = travel();
+    const p = value.value;
+    const v = vy / T;
+    const projected = p + OS.motion.project(vy, .99) / T;
+    if (vy > 350 || (vy > -350 && projected > .5)) open(v);
+    else close(v);
   }
 
   function act(t, el) {
@@ -158,12 +223,13 @@
     backdrop = cc.querySelector('.cc-backdrop');
     body = cc.querySelector('.cc-body');
     grid = cc.querySelector('.cc-grid');
-    setProgress(0);
     render();
+    value.set(0);
     installSliders();
     applyBrightness();
 
     grid.addEventListener('click', (e) => {
+      if (justDragged()) return;
       const m = e.target.closest('[data-m]');
       if (m) {
         const M = OS.Audio.Music, L = OS.MusicLibrary;
@@ -177,29 +243,38 @@
     });
     cc.querySelector('.cc-top').addEventListener('click', (e) => {
       const b = e.target.closest('[data-top]');
-      if (!b) return;
+      if (!b || justDragged()) return;
       if (b.dataset.top === 'power') { close(); setTimeout(() => OS.Lock.sleep(), 200); }
       if (b.dataset.top === 'appset') { const id = OS.Apps.current && OS.Apps.current.id; close(); if (id) OS.Apps.open('settings', { data: { page: 'app', app: id } }); }
       if (b.dataset.top === 'edit') OS.Island.flash({ left: OS.sym('square-grid', { size: 18 }), right: '<span>Personalizzazione presto</span>', width: 280 });
     });
 
-    // tap outside modules or swipe up to dismiss
+    // tap outside modules, or swipe up anywhere outside the sliders, to dismiss
     let s = null;
     body.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.cc-mod, .cc-round, .cc-top button')) return;
-      s = { y: OS.point(e).y, id: e.pointerId };
+      if (e.target.closest('[data-slider]')) return;
+      s = { y: OS.point(e).y, id: e.pointerId, tr: OS.motion.tracker(), moved: false, empty: !e.target.closest('.cc-mod, .cc-round, .cc-top button') };
+      s.tr.add(0, s.y);
     });
     window.addEventListener('pointermove', (e) => {
       if (!s || e.pointerId !== s.id) return;
-      const dy = OS.point(e).y - s.y;
-      if (dy < 0) setProgress(1 + dy / 300);
+      const y = OS.point(e).y;
+      s.tr.add(0, y);
+      const dy = y - s.y;
+      if (!s.moved && Math.abs(dy) < 8) return;
+      if (!s.moved) { s.moved = true; value.stop(); }
+      value.set(fromDrag(dy, 1));
     });
     window.addEventListener('pointerup', (e) => {
       if (!s || e.pointerId !== s.id) return;
-      const dy = OS.point(e).y - s.y;
+      const g = s;
       s = null;
-      if (dy < -60 || Math.abs(dy) < 6) close();
-      else setProgress(1, true);
+      if (!g.moved) { if (g.empty) close(); return; }
+      // a drag must not also press the button it started on
+      dragEndedAt = performance.now();
+      const vy = g.tr.velocity().y;
+      if (vy < -300 || value.value < .72) close(vy / travel());
+      else open(vy / travel());
     });
 
     OS.on('settings', (k) => {
@@ -213,8 +288,11 @@
   }
 
   OS.CC = {
-    init, open, close, setProgress,
-    beginDrag() { render(); cc.classList.add('open'); },
+    init, open: () => open(), close: () => close(), setProgress,
+    /** top-right edge pull */
+    beginDrag() { render(); cc.classList.add('open'); value.stop(); },
+    drag(dy) { value.set(fromDrag(dy, 0)); },
+    release(dy, vy) { release(vy); },
     endDrag(o) { if (o) open(); else close(); },
     get progress() { return progress; },
   };

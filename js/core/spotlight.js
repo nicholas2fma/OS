@@ -67,13 +67,24 @@
     return `<div class="home-item" data-app="${id}">${OS.icon(id, 'md')}<span class="home-label">${OS.esc(OS.apps[id].name)}</span></div>`;
   }
 
+  /* ---------- motion ---------- */
+
+  const PULL = 170;
+  const value = OS.motion.value(0, paint);
+
+  function paint(p) {
+    const seg = OS.motion.segment;
+    const q = OS.motion.clamp01(p);
+    const over = Math.max(0, p - 1);
+    root.style.visibility = p <= .001 ? 'hidden' : '';
+    backdrop.style.opacity = String(seg(p, 0, .7));
+    body.style.opacity = String(seg(p, .1, .75));
+    body.style.transform = `translate3d(0, ${(q - 1) * 44 + over * 70}px, 0) scale(${.94 + .06 * q})`;
+  }
+
   function setProgress(p, animate) {
-    p = OS.clamp(p, 0, 1);
-    backdrop.style.transition = animate ? '' : 'none';
-    body.style.transition = animate ? '' : 'none';
-    backdrop.style.opacity = p;
-    body.style.opacity = p;
-    body.style.transform = `translateY(${(p - 1) * 30}px)`;
+    if (animate) value.spring(OS.clamp(p, 0, 1), { preset: 'smooth' });
+    else value.set(p);
   }
 
   function syncMode() {
@@ -88,11 +99,11 @@
     OS.Siri.run(q);
   }
 
-  function open() {
+  function open(velocity) {
     if (OS.state.spotlightOpen) return;
     OS.state.spotlightOpen = true;
     root.classList.add('open');
-    setProgress(1, true);
+    value.spring(1, { preset: { response: .42, damping: .86 }, velocity });
     input.value = '';
     syncMode();
     search('');
@@ -106,7 +117,8 @@
     OS.state.spotlightOpen = false;
     pulling = false;
     root.classList.remove('open');
-    setProgress(0, !instant);
+    if (instant) value.set(0);
+    else value.spring(0, { preset: { response: .36, damping: 1 } });
     input.blur();
     document.getElementById('home').classList.remove('blurred');
     OS.chrome();
@@ -126,7 +138,7 @@
     body = root.querySelector('.sp-body');
     input = root.querySelector('input');
     results = root.querySelector('.sp-results');
-    setProgress(0);
+    value.set(0);
 
     input.addEventListener('input', () => search(input.value));
     input.addEventListener('keydown', (e) => {
@@ -163,13 +175,16 @@
   }
 
   OS.Spotlight = {
-    init, open, close,
-    beginPull() { pulling = true; root.classList.add('open'); syncMode(); search(''); },
-    pull(dy) { setProgress(dy / 160); },
-    endPull(dy, v) {
+    init, open: () => open(), close, setProgress,
+    beginPull() { pulling = true; value.stop(); root.classList.add('open'); syncMode(); search(''); },
+    pull(dy) { value.set(dy <= PULL ? Math.max(0, dy) / PULL : 1 + OS.motion.rubber(dy - PULL, OS.state.height * .5) / PULL); },
+    /** vy in px/s */
+    endPull(dy, vy) {
       pulling = false;
-      if (dy > 70 || v > .4) { root.classList.remove('open'); open(); }
-      else { root.classList.remove('open'); setProgress(0, true); }
+      root.classList.remove('open');
+      const projected = value.value + OS.motion.project(vy, .99) / PULL;
+      if (vy > 300 || (vy > -300 && projected > .5)) open(vy / PULL);
+      else value.spring(0, { preset: { response: .36, damping: 1 }, velocity: vy / PULL });
     },
   };
 })();

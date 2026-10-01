@@ -432,7 +432,9 @@
     const simple = (title, rows, foot) => groupedPage(title, (body) => {
       body.appendChild(UI().section(rows.map((r) => (typeof r === 'string' ? { title: r, toggle: { on: OS.rng(r)() > .4 } } : r)), null, foot));
     });
-    P.accessibility = () => simple('Accessibilità', ['VoiceOver', 'Zoom', 'Testo più grande', 'Riduci movimento', 'Riduci trasparenza', 'Aumenta contrasto', 'AssistiveTouch']);
+    P.accessibility = () => simple('Accessibilità', ['VoiceOver', 'Zoom', 'Testo più grande',
+      { title: 'Riduci movimento', sub: 'Niente rimbalzi; le app si aprono in dissolvenza', toggle: { on: !!OS.settings.reduceMotion, onChange: (v) => OS.set('reduceMotion', v) } },
+      'Riduci trasparenza', 'Aumenta contrasto', 'AssistiveTouch']);
     P.action = () => simple('Tasto Azione', [{ title: 'Modalità silenziosa', check: true }, { title: 'Full immersione' }, { title: 'Fotocamera' }, { title: 'Torcia' }], 'Premi il tasto Azione sul lato del dispositivo per attivare o disattivare la modalità silenziosa.');
     P.camera = () => simple('Fotocamera', ['Griglia', 'Livella', 'Specchia fotocamera anteriore', 'Rileva testo']);
     P.controlcenter = () => simple('Centro di Controllo', ['Accesso nelle app', 'Mostra controlli Casa'], 'Scorri verso il basso dall\'angolo in alto a destra per aprire il Centro di Controllo.');

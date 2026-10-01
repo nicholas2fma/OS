@@ -14,10 +14,16 @@
   will-change: transform;
 }
 .nav-page.grouped { --page-bg: var(--bg2); }
-.nav-page.anim { transition: transform .45s var(--ease-spring), filter .45s; }
-.nav-page.under { transform: translateX(-28%); filter: brightness(.9); }
-.nav-page.offright { transform: translateX(100%); }
-.nav-page.shadow { box-shadow: -10px 0 30px rgba(0, 0, 0, .12); }
+/* the page underneath a push dims slightly (driven by --dim from ui.js) */
+.nav-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: var(--dim, 0);
+  pointer-events: none;
+  z-index: 30;
+}
 
 .nav-scroll {
   position: absolute;
@@ -92,7 +98,7 @@
   color: var(--label);
   font-size: 16px;
   font-weight: 600;
-  transition: transform .35s var(--ease-bounce);
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 .gbtn:active { transform: scale(1.1); }
 .gbtn svg { width: 22px; height: 22px; position: relative; z-index: 2; }
@@ -140,8 +146,9 @@
   font-size: 17px;
   background: transparent;
 }
-.row.tap { cursor: pointer; }
-.row.tap:active { background: var(--cell-press); }
+/* UITableView highlight: on instantly when pressed, fades out after release */
+.row.tap { cursor: pointer; transition: background-color .45s ease; }
+.row.tap:active { background: var(--cell-press); transition: none; }
 .row + .row::before {
   content: "";
   position: absolute;
@@ -192,11 +199,12 @@
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .15), 0 0 0 .5px rgba(0, 0, 0, .04);
-  transition: transform .4s var(--ease-bounce), width .25s, background-color .2s, box-shadow .2s;
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce), width .25s, background-color .2s, box-shadow .2s;
 }
 .switch.on { background: var(--green); }
 .switch.on .knob { transform: translateX(22px); }
-.switch:active .knob {
+.switch.dragging .knob { transition: width .25s, background-color .2s, box-shadow .2s; }
+.switch:active .knob, .switch.dragging .knob {
   transform: scale(1.25);
   background: rgba(255, 255, 255, .55);
   -webkit-backdrop-filter: blur(2px) saturate(200%);
@@ -232,7 +240,7 @@
   margin-top: -9px;
   background: #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .05);
-  transition: transform .3s var(--ease-bounce);
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce);
 }
 .slider:active::-webkit-slider-thumb { transform: scale(1.2); }
 .slider::-moz-range-thumb { width: 38px; height: 24px; border-radius: 12px; border: 0; background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
@@ -254,9 +262,19 @@
   border-radius: 15px;
   background: var(--cell);
   box-shadow: 0 3px 8px rgba(0, 0, 0, .12), 0 0 0 .5px rgba(0, 0, 0, .04);
-  transition: left .4s var(--ease-bounce), width .4s var(--ease-bounce);
+  left: 0;
+  transition: scale var(--spring-bouncy-dur) var(--ease-bounce), background-color .2s, box-shadow .2s;
 }
 #screen.dark .segmented .seg-thumb { background: #636366; }
+/* pressed, the thumb lifts into a clear glass drop */
+.segmented .seg-thumb.lifted {
+  scale: 1.1 1.18;
+  background: rgba(255, 255, 255, .5);
+  -webkit-backdrop-filter: blur(3px) saturate(180%);
+  backdrop-filter: blur(3px) saturate(180%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .9), 0 6px 16px rgba(0, 0, 0, .18);
+}
+#screen.dark .segmented .seg-thumb.lifted { background: rgba(120, 120, 128, .55); }
 .segmented button {
   position: relative;
   flex: 1;
@@ -292,9 +310,19 @@
   bottom: 4px;
   border-radius: 27px;
   background: var(--fill3);
-  transition: left .45s var(--ease-bounce), width .45s var(--ease-bounce);
+  left: 0;
+  transition: scale var(--spring-bouncy-dur) var(--ease-bounce), background-color .2s, box-shadow .2s;
   z-index: 0;
 }
+/* iOS 26: touching the tab bar lifts the selection into a glass lens you can drag */
+.tab-indicator.lifted {
+  scale: 1.12 1.16;
+  background: rgba(255, 255, 255, .28);
+  -webkit-backdrop-filter: blur(2px) saturate(190%) brightness(1.1);
+  backdrop-filter: blur(2px) saturate(190%) brightness(1.1);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .85), inset 0 -1px 1px rgba(255, 255, 255, .25), 0 8px 20px rgba(0, 0, 0, .16);
+}
+.tab.hover { color: var(--accent); }
 .tab {
   position: relative;
   z-index: 2;
@@ -377,7 +405,7 @@
   gap: 8px;
   background: var(--fill3);
   color: var(--accent);
-  transition: transform .3s var(--ease-bounce), filter .2s;
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce), filter .2s;
 }
 .btn:active { transform: scale(.97); filter: brightness(.92); }
 .btn.filled { background: var(--accent); color: #fff; }
@@ -396,9 +424,7 @@
   inset: 0;
   background: rgba(0, 0, 0, .28);
   opacity: 0;
-  transition: opacity .35s;
 }
-.sheet-wrap.show .sheet-dim { opacity: 1; }
 .sheet {
   position: absolute;
   left: 8px;
@@ -409,7 +435,6 @@
   background: var(--bg3);
   color: var(--label);
   transform: translateY(105%);
-  transition: transform .5s var(--ease-spring);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -417,7 +442,6 @@
 }
 #screen.light .sheet { background: var(--bg2); }
 .sheet.large { top: 58px; }
-.sheet-wrap.show .sheet { transform: none; }
 .sheet-grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--label3); margin: 7px auto 0; flex: none; }
 .sheet-head {
   display: grid;
@@ -453,7 +477,7 @@
   text-align: center;
   color: var(--label);
   transform: scale(1.15);
-  transition: transform .4s var(--ease-bounce);
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce);
   --g-clear: rgba(245, 245, 247, .72);
   --g-tint: rgba(245, 245, 247, .96);
   --g-blur: 26px;
@@ -502,26 +526,21 @@
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   opacity: 0;
-  transition: opacity .3s;
 }
-.menu-wrap.show .menu-dim { opacity: 1; }
-.menu-preview { position: absolute; transition: transform .35s var(--ease-bounce); }
-.menu-wrap.show .menu-preview { transform: scale(1.06); }
+.menu-preview { position: absolute; }
 .menu {
   position: absolute;
   width: 254px;
   border-radius: 28px;
   padding: 6px 0;
   color: var(--label);
-  transform: scale(.4);
+  transform: scale(.2);
   opacity: 0;
-  transition: transform .45s var(--ease-bounce), opacity .2s;
   --g-clear: rgba(250, 250, 252, .6);
   --g-tint: rgba(250, 250, 252, .95);
   --g-blur: 26px;
 }
 #screen.dark .menu { --g-clear: rgba(40, 40, 44, .6); --g-tint: rgba(40, 40, 44, .95); }
-.menu-wrap.show .menu { transform: none; opacity: 1; }
 .menu button {
   display: flex;
   align-items: center;
@@ -531,7 +550,7 @@
   font-size: 16px;
   text-align: left;
 }
-.menu button:active { background: var(--fill3); }
+.menu button:active, .menu button.hover { background: var(--fill3); }
 .menu button.destructive { color: var(--red); }
 .menu button svg { width: 20px; height: 20px; }
 .menu hr { border: 0; border-top: 6px solid rgba(0, 0, 0, .06); margin: 4px 0; }

@@ -299,9 +299,12 @@
       });
       root.querySelector('[data-a="select"]').addEventListener('click', () => OS.Island.flash({ left: OS.sym('checkmark-circle', { size: 18 }), right: '<span>Tieni premuto per azioni</span>', width: 260 }));
 
+      /* viewer: the photo grows out of its thumbnail (a shared-element zoom), can be
+         paged sideways and flicked down to fly back into the grid */
       function openViewer(list, index, fromEl) {
         let i = index;
         const v = OS.el(`<div class="ph-viewer">
+          <div class="ph-v-bg"></div>
           <div class="ph-v-top"><button class="gbtn glass" data-a="close" aria-label="Chiudi">${OS.sym('chevron-left', { stroke: 2.4 })}</button><div class="ph-v-date"></div><button class="gbtn glass" data-a="more" aria-label="Altro">${OS.sym('ellipsis')}</button></div>
           <div class="ph-v-stage"><img alt=""></div>
           <div class="ph-v-bottom"><button class="gbtn glass" data-a="share" aria-label="Condividi">${OS.sym('share')}</button>
@@ -310,21 +313,83 @@
         </div>`);
         const img = v.querySelector('img');
         const stage = v.querySelector('.ph-v-stage');
+        const bg = v.querySelector('.ph-v-bg');
+        const chrome = [v.querySelector('.ph-v-top'), v.querySelector('.ph-v-bottom')];
+        // vis: x/y offset of the photo centre, s scale, cx/cy crop (fraction cut from each side), b backdrop
+        let vis = { x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 };
+        let anim = null;
+        let closing = false;
+
+        function fitted() {
+          const sw = stage.clientWidth || OS.state.width, sh = stage.clientHeight || OS.state.height;
+          const nw = img.naturalWidth || W, nh = img.naturalHeight || H;
+          const k = Math.min(sw / nw, sh / nh);
+          return { w: nw * k, h: nh * k, sw, sh };
+        }
+        function size() {
+          const f = fitted();
+          img.style.width = f.w + 'px';
+          img.style.height = f.h + 'px';
+        }
+        function paint() {
+          const cx = Math.max(0, vis.cx) * 100, cy = Math.max(0, vis.cy) * 100;
+          img.style.transform = `translate3d(${vis.x}px, ${vis.y}px, 0) scale(${vis.s})`;
+          img.style.clipPath = cx || cy ? `inset(${cy}% ${cx}% ${cy}% ${cx}% round ${4 / Math.max(.05, vis.s)}px)` : '';
+          bg.style.opacity = String(OS.clamp(vis.b, 0, 1));
+          chrome.forEach((el) => { el.style.opacity = vis.b >= 1 ? '' : String(OS.motion.segment(vis.b, .6, 1)); });
+        }
+        /** where the photo sits when it is folded back into a grid cell */
+        function cellVis(cell) {
+          if (!cell || !cell.isConnected) return null;
+          const r = OS.rectOf(cell), sr = OS.rectOf(stage);
+          if (r.y + r.height < sr.y || r.y > sr.y + sr.height) return null;
+          const f = fitted();
+          const s0 = Math.max(r.width / f.w, r.height / f.h);
+          return {
+            x: r.x + r.width / 2 - (sr.x + sr.width / 2), y: r.y + r.height / 2 - (sr.y + sr.height / 2), s: s0,
+            cx: (1 - r.width / (f.w * s0)) / 2, cy: (1 - r.height / (f.h * s0)) / 2, b: 0,
+          };
+        }
+        function springTo(to, velocity, preset, done) {
+          if (anim) anim.stop();
+          anim = OS.motion.animate({
+            from: Object.assign({}, vis), to, velocity: velocity || {}, preset,
+            onUpdate(nv) { vis = Object.assign({}, nv); paint(); },
+            onComplete() { anim = null; if (done) done(); },
+          });
+        }
+        const cellFor = () => (list === current ? grid.querySelector(`.ph-cell[data-i="${i}"]`) : null);
+
         function show() {
           const p = list[i];
           img.src = Service.src(p);
+          size();
           const d = new Date(p.date);
           v.querySelector('.ph-v-date').innerHTML = `<b>${d.getDate()} ${OS.fmt.MONTHS[d.getMonth()]} ${d.getFullYear()}</b><span>${OS.fmt.time(d)}</span>`;
           v.querySelector('[data-a="fav"]').innerHTML = OS.sym(Service.favs.has(p.id) ? 'heart-fill' : 'heart');
         }
+        img.addEventListener('load', size);
         show();
         root.querySelector('.ph-app').appendChild(v);
-        if (fromEl) {
-          const r = OS.rectOf(fromEl), wr = OS.rectOf(root);
-          img.animate([{ transform: `translate(${r.x + r.width / 2 - wr.width / 2}px, ${r.y + r.height / 2 - wr.height / 2}px) scale(${r.width / wr.width})`, opacity: .6 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1)' });
+        const start = cellVis(fromEl);
+        if (start) { vis = start; paint(); springTo({ x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 }, null, { response: .46, damping: .86 }); }
+        else { vis = { x: 0, y: 40, s: .94, cx: 0, cy: 0, b: 0 }; paint(); springTo({ x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 }, null, 'smooth'); }
+
+        function close(velocity) {
+          if (closing) return;
+          closing = true;
+          v.style.pointerEvents = 'none';
+          const back = cellVis(cellFor());
+          const gone = () => {
+            v.remove();
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', end);
+            window.removeEventListener('pointercancel', end);
+          };
+          if (back) springTo(back, velocity, { response: .42, damping: .88 }, gone);
+          else springTo({ x: vis.x, y: OS.state.height * .6, s: vis.s * .8, cx: 0, cy: 0, b: 0 }, velocity, { response: .36, damping: 1 }, gone);
         }
-        requestAnimationFrame(() => v.classList.add('show'));
-        const close = () => { v.classList.remove('show'); setTimeout(() => v.remove(), 300); };
+
         v.addEventListener('click', (e) => {
           const a = e.target.closest('[data-a]');
           if (!a) { if (e.target === stage || e.target === img) v.classList.toggle('bare'); return; }
@@ -341,29 +406,65 @@
             default:
           }
         });
-        // swipe navigation / swipe down to close
+
+        // drag: sideways pages through the library, down shrinks the photo and lets the grid show through
         let s = null;
-        stage.addEventListener('pointerdown', (e) => { s = OS.point(e); s.t = performance.now(); img.style.transition = 'none'; });
-        stage.addEventListener('pointermove', (e) => {
-          if (!s) return;
+        let draggedAt = 0;
+        stage.addEventListener('pointerdown', (e) => {
+          if (closing || e.button > 0) return;
+          if (anim) anim.stop();
           const p = OS.point(e);
-          const dx = p.x - s.x, dy = p.y - s.y;
-          if (Math.abs(dy) > Math.abs(dx) && dy > 0) img.style.transform = `translateY(${dy}px) scale(${1 - dy / 1500})`;
-          else img.style.transform = `translateX(${dx}px)`;
+          s = { x: p.x, y: p.y, axis: null, base: Object.assign({}, vis), tr: OS.motion.tracker(), id: e.pointerId };
+          s.tr.add(p.x, p.y);
         });
-        const end = (e) => {
-          if (!s) return;
+        stage.addEventListener('click', (e) => { if (performance.now() - draggedAt < 90) e.stopPropagation(); }, true);
+        const move = (e) => {
+          if (!s || e.pointerId !== s.id) return;
           const p = OS.point(e);
+          s.tr.add(p.x, p.y);
           const dx = p.x - s.x, dy = p.y - s.y;
-          s = null;
-          img.style.transition = '';
-          img.style.transform = '';
-          if (dy > 120 && Math.abs(dy) > Math.abs(dx)) { close(); return; }
-          if (dx < -60 && i < list.length - 1) { i++; show(); }
-          else if (dx > 60 && i > 0) { i--; show(); }
+          if (!s.axis) {
+            if (Math.hypot(dx, dy) < 8) return;
+            s.axis = dy > 0 && Math.abs(dy) > Math.abs(dx) ? 'down' : 'x';
+          }
+          const Hh = OS.state.height;
+          if (s.axis === 'down') {
+            const k = OS.clamp(dy / Hh, 0, 1);
+            vis = { x: s.base.x + dx, y: s.base.y + Math.max(0, dy), s: 1 - .45 * k, cx: 0, cy: 0, b: 1 - k * 2.2 };
+          } else {
+            const edge = (dx > 0 && i === 0) || (dx < 0 && i === list.length - 1);
+            vis = Object.assign({}, s.base, { x: s.base.x + (edge ? OS.motion.rubber(dx, OS.state.width * .5) : dx) });
+          }
+          paint();
         };
-        stage.addEventListener('pointerup', end);
-        stage.addEventListener('pointercancel', end);
+        const end = (e) => {
+          if (!s || e.pointerId !== s.id) return;
+          const g = s;
+          s = null;
+          if (!g.axis) return;
+          draggedAt = performance.now();
+          const vel = g.tr.velocity();
+          if (g.axis === 'down') {
+            if (vel.y > 300 || (vel.y > -200 && vis.y + OS.motion.project(vel.y, .99) > 160)) { close({ x: vel.x, y: vel.y }); return; }
+            springTo({ x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 }, { x: vel.x, y: vel.y }, { response: .38, damping: .82 });
+            return;
+          }
+          const Wd = OS.state.width;
+          const projected = vis.x + OS.motion.project(vel.x, .99);
+          const dir = projected < -Wd * .35 && i < list.length - 1 ? 1 : projected > Wd * .35 && i > 0 ? -1 : 0;
+          if (!dir) { springTo({ x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 }, { x: vel.x }, 'snappy'); return; }
+          // the photo slides out with the finger's speed, the next one follows it in
+          springTo(Object.assign({}, vis, { x: -dir * (Wd + 24) }), { x: vel.x }, { response: .3, damping: 1 }, () => {
+            i += dir;
+            show();
+            vis = Object.assign({}, vis, { x: dir * (Wd * .55) });
+            paint();
+            springTo({ x: 0, y: 0, s: 1, cx: 0, cy: 0, b: 1 }, { x: vel.x * .5 }, { response: .34, damping: 1 });
+          });
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', end);
+        window.addEventListener('pointercancel', end);
       }
 
       const off = OS.on('photos', () => paintGrid(false));

@@ -139,6 +139,20 @@
 
 .glass.no-rim::before { display: none; }
 
+/* touch light (see installTouchLight in js/core/glass.js) */
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, .4), rgba(255, 255, 255, .1) 42%, rgba(255, 255, 255, 0) 72%);
+  opacity: 0;
+  transition: opacity .5s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.glass.touching::after { opacity: 1; transition-duration: .12s; }
+
 /* refraction layer (see js/core/glass.js) */
 .lg-host { isolation: isolate; }
 .lg-host.lg-on {
@@ -159,7 +173,7 @@
 
 /* Interactive lens: grows and brightens when pressed */
 .glass-press {
-  transition: transform .35s var(--ease-bounce), filter .2s, background-color .2s;
+  transition: transform var(--spring-bouncy-dur) var(--ease-bounce), filter .2s, background-color .2s;
 }
 .glass-press:active {
   transform: scale(1.08);

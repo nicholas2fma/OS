@@ -129,18 +129,44 @@
     dotsEl.innerHTML = layout.pages.map((_, i) => `<i class="${i === page ? 'on' : ''}"></i>`).join('') + `<i class="lib ${page === nPages ? 'on' : ''}"></i>`;
     page = Math.min(page, nPages);
     applyPage(false);
+    if (jiggle) seedJiggle();
   }
 
-  function applyPage(animate) {
-    pagesEl.classList.toggle('anim', !!animate);
-    pagesEl.style.transform = `translateX(${-page * OS.state.width}px)`;
-    dotsEl.querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === page));
+  /* ---------- paging: follows the finger, rubber-bands at the ends, settles on a spring ---------- */
+
+  const pageX = OS.motion.value(0, paintPages);
+  let litDot = -1;
+  let lastLib = 0;
+
+  function paintPages(x) {
+    const W = OS.state.width;
+    pagesEl.style.transform = `translate3d(${x}px, 0, 0)`;
+    // the dock and the search pill step aside for the App Library
+    const lib = OS.motion.clamp01((-x - (layout.pages.length - 1) * W) / W);
+    if (lib || lastLib) {
+      lastLib = lib;
+      dockEl.style.opacity = lib ? String(1 - lib) : '';
+      dockEl.style.transform = lib ? `translate3d(0, ${lib * 40}px, 0) scale(${1 - lib * .06})` : '';
+      dockEl.style.pointerEvents = lib > .5 ? 'none' : '';
+    }
+    const nearest = OS.clamp(Math.round(-x / W), 0, layout.pages.length);
+    if (nearest !== litDot) {
+      litDot = nearest;
+      dotsEl.querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === nearest));
+    }
   }
 
-  function goToPage(p, animate) {
+  function applyPage(animate, velocity) {
+    const target = -page * OS.state.width;
+    litDot = -1;
+    if (animate) pageX.spring(target, { preset: { response: .42, damping: 1 }, velocity: velocity || 0 });
+    else pageX.set(target);
+  }
+
+  function goToPage(p, animate, velocity) {
     const max = layout.pages.length;
     page = OS.clamp(p, 0, max);
-    applyPage(animate !== false);
+    applyPage(animate !== false, velocity);
     flashDots();
   }
 
@@ -163,35 +189,80 @@
     const prevTransform = home.style.transform;
     home.style.transition = 'none';
     home.style.transform = 'none';
-    const had = home.classList.contains('behind-app');
-    home.classList.remove('behind-app');
     const r = OS.rectOf(el);
-    if (had) home.classList.add('behind-app');
     home.style.transform = prevTransform;
     void home.offsetWidth;
     home.style.transition = prevTransition;
     return r;
   }
 
-  function setBehind(b) {
-    home.style.transform = '';
-    home.style.transition = '';
-    home.classList.toggle('behind-app', !!b);
+  /* ---------- zoom: the Home Screen recedes toward the icon of the app that opens ---------- */
+
+  let zoomVal = 1;
+  let zoomAnim = null;
+  let zoomOrigin = null;
+
+  function paintZoom() {
+    home.style.transition = 'opacity .35s ease, filter .35s ease';
+    home.style.transformOrigin = zoomOrigin ? `${zoomOrigin.x}px ${zoomOrigin.y}px` : '50% 50%';
+    home.style.transform = Math.abs(zoomVal - 1) < .0005 ? '' : `scale(${zoomVal})`;
   }
 
-  function setProgress(p) {
-    if (p == null) { home.style.transform = ''; home.style.transition = ''; return; }
-    home.style.transition = 'none';
-    home.style.transform = `scale(${1 + .06 * OS.clamp(p, 0, 1)})`;
+  /** an app launching mid-unlock takes over the zoom */
+  function settleReveal() {
+    if (!revealV.animating) return;
+    revealV.stop();
+    pagesEl.style.opacity = '';
+    searchBtn.style.opacity = '';
+    if (!lastLib) dockEl.style.opacity = '';
+    pagesEl.style.filter = '';
   }
 
-  function zoomIn() {
-    home.style.transition = 'none';
-    home.classList.add('zoomed');
-    void home.offsetWidth;
-    home.style.transition = '';
-    home.classList.remove('zoomed');
+  function zoom(scale, origin) {
+    settleReveal();
+    if (zoomAnim) { zoomAnim.stop(); zoomAnim = null; }
+    zoomVal = scale;
+    if (origin) zoomOrigin = origin;
+    paintZoom();
   }
+
+  function springZoom(target, velocity, preset) {
+    settleReveal();
+    if (zoomAnim) zoomAnim.stop();
+    zoomAnim = OS.motion.animate({
+      from: zoomVal, to: target, velocity: velocity || 0, preset: preset || 'smooth',
+      onUpdate(v) { zoomVal = v; paintZoom(); },
+      onComplete() { zoomAnim = null; },
+    });
+    return zoomAnim;
+  }
+
+  function setBehind(b) { springZoom(b ? 1.16 : 1); }
+  function setProgress(p) { if (p == null) springZoom(1); else zoom(1 + .16 * OS.clamp(p, 0, 1)); }
+
+  /* ---------- unlock: icons fly in from slightly larger, fading in and coming into focus ---------- */
+
+  const revealV = OS.motion.value(1, paintReveal);
+
+  function paintReveal(u) {
+    if (zoomAnim) { zoomAnim.stop(); zoomAnim = null; }
+    zoomOrigin = null;
+    zoomVal = 1 + .2 * (1 - u);
+    paintZoom();
+    const done = u >= 1 && !revealV.animating;
+    const o = done ? '' : String(OS.motion.segment(u, 0, .55));
+    pagesEl.style.opacity = o;
+    searchBtn.style.opacity = o;
+    if (!lastLib) dockEl.style.opacity = o;
+    pagesEl.style.filter = u >= .8 || done ? '' : `blur(${(1 - u / .8) * 12}px)`;
+  }
+
+  /** u = 0 hidden behind the Lock Screen … 1 in place */
+  function reveal(u) { revealV.set(u); }
+  function springReveal(to, velocity) {
+    return revealV.spring(to, { preset: { response: .5, damping: .86 }, velocity: velocity || 0, onComplete: () => paintReveal(revealV.value) });
+  }
+  function zoomIn() { revealV.set(0); springReveal(1); }
 
   function setBadge(id, n) {
     if (n) badges[id] = n; else delete badges[id];
@@ -206,9 +277,19 @@
 
   /* ---------- jiggle mode ---------- */
 
+  /** random phase and period per icon so they never wobble in sync */
+  function seedJiggle() {
+    home.querySelectorAll('.home-item').forEach((el) => {
+      if (el.style.getPropertyValue('--jd')) return;
+      el.style.setProperty('--jd', (-Math.random() * .3).toFixed(3) + 's');
+      el.style.setProperty('--jdur', (.24 + Math.random() * .07).toFixed(3) + 's');
+    });
+  }
+
   function enterJiggle() {
     if (jiggle) return;
     jiggle = true;
+    seedJiggle();
     home.classList.add('jiggle');
     OS.haptic(15);
   }
@@ -389,9 +470,13 @@
       const item = e.target.closest('.home-item, .lib-app');
       g = {
         id: e.pointerId, x: p.x, y: p.y, t: performance.now(), item, target: e.target,
-        axis: null, page0: page, long: false, dragging: false,
+        axis: null, page0: page, long: false, dragging: false, tr: OS.motion.tracker(),
         resize: jiggle && e.target.closest('.resize-handle') ? item : null,
+        // a finger landing on moving pages catches them (and does not tap)
+        caught: pageX.animating, x0: pageX.value,
       };
+      g.tr.add(p.x, p.y);
+      if (g.caught) pageX.stop();
       clearTimeout(lpTimer);
       if (!jiggle) {
         lpTimer = setTimeout(() => {
@@ -406,6 +491,7 @@
     window.addEventListener('pointermove', (e) => {
       if (!g || e.pointerId !== g.id) return;
       const p = OS.point(e);
+      g.tr.add(p.x, p.y);
       const dx = p.x - g.x, dy = p.y - g.y;
       if (g.dragging) { dragMove(p); return; }
       if (g.resize) {
@@ -428,13 +514,12 @@
         if (g.axis === 'down') OS.Spotlight.beginPull();
       }
       if (g.axis === 'x') {
-        const max = layout.pages.length;
-        let off = -g.page0 * OS.state.width + dx;
-        const minOff = -max * OS.state.width;
-        if (off > 0) off *= .35;
-        if (off < minOff) off = minOff + (off - minOff) * .35;
-        pagesEl.classList.remove('anim');
-        pagesEl.style.transform = `translateX(${off}px)`;
+        const W = OS.state.width;
+        const minOff = -layout.pages.length * W;
+        let off = g.x0 + dx;
+        if (off > 0) off = OS.motion.rubber(off, W);
+        if (off < minOff) off = minOff + OS.motion.rubber(off - minOff, W);
+        pageX.set(off);
         home.classList.add('paging');
         clearTimeout(pagingTimer);
       } else if (g.axis === 'down') {
@@ -449,7 +534,8 @@
       g = null;
       const p = OS.point(e);
       const dx = p.x - s.x, dy = p.y - s.y;
-      const dt = Math.max(1, performance.now() - s.t);
+      s.tr.add(p.x, p.y);
+      const vel = s.tr.velocity();
       if (s.dragging) { dragEnd(); return; }
       if (s.resize) {
         s.resize.querySelector('.widget-box').style.transform = '';
@@ -458,14 +544,19 @@
         return;
       }
       if (s.axis === 'x') {
-        const v = dx / dt;
-        let target = s.page0;
-        if (dx < -OS.state.width * .25 || v < -.35) target++;
-        else if (dx > OS.state.width * .25 || v > .35) target--;
-        goToPage(target);
+        // like a paging scroll view: a flick goes one page its way, a slow drag picks the nearest
+        const W = OS.state.width;
+        const x = pageX.value;
+        const from = Math.round(-s.x0 / W);
+        let target;
+        if (Math.abs(vel.x) > 300) target = from + (vel.x < 0 ? 1 : -1);
+        else target = Math.round(-(x + OS.motion.project(vel.x, .99)) / W);
+        target = OS.clamp(target, from - 1, from + 1);
+        goToPage(target, true, vel.x);
         return;
       }
-      if (s.axis === 'down') { OS.Spotlight.endPull(dy, dy / dt); return; }
+      if (s.axis === 'down') { OS.Spotlight.endPull(dy, vel.y); return; }
+      if (s.caught && !s.axis) { goToPage(Math.round(-pageX.value / OS.state.width)); return; }
       if (s.axis || s.long || e.type === 'pointercancel') return;
       tap(s);
     };
@@ -667,7 +758,7 @@
   }
 
   OS.Home = {
-    init, render, iconFor, restRect, setBehind, setProgress, zoomIn, goToPage,
+    init, render, iconFor, restRect, setBehind, setProgress, zoomIn, reveal, springReveal, goToPage, zoom, springZoom,
     enterJiggle, exitJiggle, setBadge, restoreApp,
     get page() { return page; },
     get jiggle() { return jiggle; },

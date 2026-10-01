@@ -247,7 +247,7 @@ body.fullscreen #screen {
   inset: 0;
 }
 
-#wallpaper   { z-index: 0; background-size: cover; background-position: center; transition: transform .6s var(--ease-spring), filter .4s; }
+#wallpaper   { z-index: 0; background-size: cover; background-position: center; transition: transform var(--spring-smooth-dur) var(--ease-spring), filter .4s; }
 #home        { z-index: 10; }
 #apps        { z-index: 20; pointer-events: none; }
 #spotlight   { z-index: 30; pointer-events: none; }
@@ -273,7 +273,8 @@ body.fullscreen #screen {
   overscroll-behavior: contain;
 }
 .scroll { overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
-.scroll-x { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; }
+/* a vertical wheel or swipe over a horizontal shelf still scrolls the list around it */
+.scroll-x { overflow-x: auto; overflow-y: hidden; touch-action: pan-x pan-y; overscroll-behavior-y: auto; }
 .scroll::-webkit-scrollbar, .scroll-x::-webkit-scrollbar { display: none; }
 
 .tnum { font-variant-numeric: tabular-nums; }

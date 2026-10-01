@@ -17,6 +17,9 @@
 
   function boot() {
     OS.screenEl = document.getElementById('screen');
+    // every CSS transition below now runs on real spring curves
+    OS.motion.installCSS(document.documentElement);
+    OS.motion.installCSS(OS.screenEl);
     OS.Gestures.resize();
 
     OS.Glass.init();
@@ -34,7 +37,9 @@
     OS.Lock.init();
     OS.CC.init();
     OS.Gestures.init();
+    OS.Scroll.init();
 
+    OS.on('setting:reduceMotion', () => { OS.motion.installCSS(document.documentElement); OS.motion.installCSS(OS.screenEl); });
     OS.on('setting:appearance', applyTheme);
     OS.on('setting:glassLevel', applyTheme);
     OS.on('setting:wallpaper', () => { OS.Wallpapers.apply(); OS.chrome(); });

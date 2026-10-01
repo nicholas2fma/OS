@@ -157,9 +157,44 @@
     tracked.forEach((_, el) => update(el));
   }
 
+  /* iOS 26 interactive glass: touching a glass control lights it up from under
+     the finger, and the light follows the finger until it lifts */
+  const TOUCHABLE = 'button.glass, .glass button, .gbtn, .glass[data-t], .glass[data-a], .glass[role="button"], .notif, .tabbar-pill, .sp-field, .home-search, .library-search, .pill-btn, .lock-quick';
+
+  function installTouchLight() {
+    let lit = null;
+    let id = null;
+    const aim = (e) => {
+      const r = OS.rectOf(lit);
+      const p = OS.point(e);
+      const kx = lit.offsetWidth / Math.max(1, r.width), ky = lit.offsetHeight / Math.max(1, r.height);
+      lit.style.setProperty('--lx', ((p.x - r.x) * kx).toFixed(1) + 'px');
+      lit.style.setProperty('--ly', ((p.y - r.y) * ky).toFixed(1) + 'px');
+    };
+    const release = (e) => {
+      if (!lit || (e && e.pointerId !== id)) return;
+      lit.classList.remove('touching');
+      lit = null;
+    };
+    document.addEventListener('pointerdown', (e) => {
+      release();
+      const hit = e.target.closest && e.target.closest(TOUCHABLE);
+      const g = hit && (hit.classList.contains('glass') ? hit : hit.closest('.glass'));
+      if (!g || !OS.screenEl.contains(g)) return;
+      lit = g;
+      id = e.pointerId;
+      aim(e);
+      g.classList.add('touching');
+    }, true);
+    window.addEventListener('pointermove', (e) => { if (lit && e.pointerId === id) aim(e); }, { passive: true });
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+  }
+
   function init() {
     defs = document.querySelector('#svg-defs defs');
     OS.on('setting:refraction', refreshAll);
+    installTouchLight();
   }
 
   OS.Glass = { supported, attach, refreshAll, init, update };

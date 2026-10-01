@@ -47,6 +47,7 @@
     userName: 'Il tuo nome',
     lowPower: false,
     siriAI: true,            // iOS 27: Siri in the Dynamic Island, "Cerca o chiedi", banners from the left
+    reduceMotion: false,     // Accessibilità › Riduci movimento: no bounce, apps cross-fade
     hiddenApps: [],
   };
 
