@@ -1,23 +1,38 @@
-# iOS 26 Web
+# iOS 27 Web
 
-Una ricreazione di iOS 26 e del suo materiale **Liquid Glass**, fatta interamente con HTML, CSS e JavaScript. Non ci sono librerie, non c'è un passaggio di build e non serve installare niente.
+Una ricreazione di iOS 27, con il suo materiale **Liquid Glass** e Siri nella Dynamic Island, fatta interamente con HTML, CSS e JavaScript. Non ci sono librerie, non c'è un passaggio di build e non serve installare niente.
 
 Su computer appare un iPhone con cornice, tasti laterali e una legenda dei comandi. Su telefono la pagina occupa tutto lo schermo e diventa il telefono.
+
+## Novità di iOS 27
+
+- **Liquid Glass regolabile:** in *Impostazioni › Aspetto › Liquid Glass* un cursore va da trasparente a colorato, con un'anteprima che cambia mentre lo trascini. Vale in tutto il sistema. Il vetro ha anche bordi più scuri e riflessi più luminosi.
+- **Nuova sezione Aspetto** in Impostazioni: modalità chiara, scura e automatica, Liquid Glass e icone, prima sparse in *Schermo e luminosità*.
+- **Siri nella Dynamic Island:** tieni premuto il tasto laterale, oppure scorri giù dal centro in alto per **Cerca o chiedi**, che sostituisce Spotlight. Durante l'elaborazione compare una pillola luminosa; la risposta arriva come scheda di vetro scuro che esce dall'isola. C'è anche l'app **Siri** per la conversazione completa.
+- **Nuova mappa dei gesti** (con Siri AI attiva): in alto a sinistra il Centro Notifiche, al centro Cerca o chiedi, a destra il Centro di Controllo. I banner delle notifiche entrano da sinistra.
+- **Widget extra-large (4×6)** a pagina intera per Meteo, Calendario, Musica e Foto. In modalità modifica una maniglia nell'angolo cambia la taglia del widget.
+- **Schermata di blocco:** orologio compatto nella riga dei widget, cursore del volume, Now Playing che si cancella scorrendo a sinistra (sparisce anche dalla Dynamic Island). Per personalizzarla tieni premuto sulla schermata di blocco.
+- **Centro di Controllo:** sopra un'app compare il pulsante per aprire le impostazioni di quell'app.
+- **Fotocamera:** pannello dei controlli con i sei punti (flash, Live, timer, esposizione, stile, griglia, formato), con *Modifica* per scegliere quali mostrare in alto; nuova **modalità Siri** che analizza l'inquadratura.
+- **Messaggi:** disegni a mano libera dal pulsante "+".
+- **Promemoria in linguaggio naturale:** scrivi «Chiamare il dentista venerdì alle 10» e data e ora vengono compilate da sole.
+
+Con Siri AI disattivata (*Impostazioni › Apple Intelligence e Siri*) i gesti tornano quelli di iOS 26.
 
 ## Perché il web e non Godot
 
 Un sistema operativo per telefono è fatto soprattutto di testo, liste, scorrimenti, animazioni a molla e materiali traslucidi. Il browser offre tutto questo in modo nativo:
 
-- **Vetro vero:** `backdrop-filter` sfoca e satura in hardware ciò che sta dietro a ogni elemento. Nei browser Chromium un filtro SVG di spostamento rifrange lo sfondo ai bordi, come una lente. In Godot ogni pannello avrebbe bisogno di uno shader che legge la texture dello schermo.
+- **Vetro vero:** `backdrop-filter` sfoca e satura in hardware ciò che sta dietro a ogni elemento. Nei browser Chromium un filtro SVG di spostamento rifrange lo sfondo ai bordi, come una lente.
 - **Testo e interfaccia:** tipografia, scorrimento inerziale, campi di testo, accessibilità e selezione funzionano già. In un motore di gioco andrebbero ricostruiti da zero.
-- **Gira ovunque:** basta aprire un link, anche su un iPhone vero, e lo si può aggiungere alla schermata Home a schermo intero. Godot richiederebbe un export per ogni piattaforma.
-- **Accesso al dispositivo:** fotocamera (`getUserMedia`), bussola (`DeviceOrientation`), batteria, geolocalizzazione, audio (Web Audio) e dati in rete (meteo e mappe reali).
+- **Gira ovunque:** basta aprire un link, anche su un iPhone vero, e lo si può aggiungere alla schermata Home a schermo intero.
+- **Accesso al dispositivo:** fotocamera, bussola, batteria, geolocalizzazione, audio, dettatura e sintesi vocale, dati in rete (meteo e mappe reali).
 
 ## Come avviarlo
 
 **Il modo più semplice:** apri `index.html` con un doppio clic.
 
-**Con un server locale**, consigliato perché la fotocamera funziona solo su `localhost` o `https`:
+**Con un server locale**, consigliato perché fotocamera e dettatura funzionano solo su `localhost` o `https`:
 
 ```bash
 python3 -m http.server 8000
@@ -35,73 +50,82 @@ Con il mouse, trascina come faresti con un dito.
 | Azione | Gesto | Tastiera |
 | --- | --- | --- |
 | Sbloccare | Scorri verso l'alto sulla schermata di blocco | `Invio` |
+| Personalizzare il blocco | Tieni premuto sulla schermata di blocco | — |
 | Tornare alla Home | Scorri in alto dalla barra in basso, oppure clic sulla barra | `Esc` / `H` |
 | Multitasking | Scorri in alto dalla barra e fermati; nelle schede scorri di lato, butta via un'app verso l'alto | `M` |
-| Centro di Controllo | Scorri giù dall'angolo in alto a destra | `C` |
+| Cerca o chiedi | Scorri giù dal centro in alto (anche dentro le app) o dal centro della Home | `/` |
+| Siri | Tieni premuto il tasto laterale destro | `S` |
 | Centro Notifiche | Scorri giù dall'alto a sinistra | `N` |
-| Cerca (Spotlight) | Scorri giù sulla Home, oppure tocca "Cerca" | `/` |
+| Centro di Controllo | Scorri giù dall'alto a destra | `C` |
 | Cambiare pagina | Scorri a sinistra o a destra | `←` `→` |
-| Menu rapido / modifica Home | Tieni premuta un'icona; in modifica trascina le icone | — |
-| Bloccare / spegnere lo schermo | Tasto laterale destro | `L` |
+| Menu rapido / modifica Home | Tieni premuta un'icona; in modifica trascina le icone o usa la maniglia dei widget | — |
+| Bloccare / spegnere lo schermo | Premi il tasto laterale destro | `L` |
 | Modalità silenziosa | Tasto Azione (in alto a sinistra) | — |
 | Volume | Tasti volume | — |
 
+## Cosa chiedere a Siri
+
+Siri capisce richieste in italiano, ad esempio:
+
+- «Che tempo fa domani a Milano?» · «Che ore sono?» · «Quanto fa 18 per 24?»
+- «Imposta un timer di 5 minuti» · «Svegliami domani alle 7:30»
+- «Ricordami di comprare il pane stasera» · «Crea una nota: idee per le vacanze»
+- «Chiama mamma» · «Scrivi a Giulia che arrivo tardi» · «Cosa ho in programma oggi?»
+- «Riproduci musica» · «Prossima canzone» · «Accendi la torcia» · «Disattiva il Wi-Fi»
+- «Attiva la modalità scura» · «Alza la luminosità» · «Rendi il Liquid Glass più trasparente»
+- «Apri Mappe»
+
+Quando non capisce, propone una ricerca sul web. Le risposte possono anche essere lette ad alta voce (*Risposte vocali*).
+
 ## Cosa c'è
 
-**Sistema**
+**Sistema:** schermata di blocco, Home con più pagine e widget, dock e pulsante "Cerca" in vetro, badge, Libreria app, modifica con riordino tra pagine e dock, stili icone (Predefinito, Scuro, Trasparente, Colorato), apertura delle app con zoom dall'icona, multitasking a schede, Dynamic Island con attività live (timer, musica, chiamata, Siri), Centro di Controllo, Centro Notifiche, banner, 7 sfondi generati in SVG.
 
-- Schermata di blocco con orologio in vetro, widget, notifiche impilate, Now Playing, torcia e fotocamera, sblocco con Face ID simulato.
-- Home con più pagine, widget (Meteo, Calendario, Musica, Orologio, Batterie), dock e pulsante "Cerca" in vetro, badge, Libreria app.
-- Modifica Home: icone che tremano, riordino col trascinamento anche tra pagine e nel dock, aggiunta e rimozione di widget e app.
-- Stili delle icone: Predefinito, Scuro, Trasparente, Colorato (con tinta regolabile).
-- Apertura e chiusura delle app con zoom dall'icona, gesto Home interattivo, multitasking a schede.
-- Dynamic Island con attività live (timer, musica, chiamata), vista espansa, seconda bolla e avvisi rapidi.
-- Centro di Controllo con connessioni, Now Playing, luminosità, volume, Full immersione, torcia, modalità scura e altro.
-- Centro Notifiche, banner, Spotlight con calcolatrice, contatti, note e ricerca web.
-- Modalità chiara, scura e automatica; Liquid Glass "Trasparente" o "Colorato"; 7 sfondi generati in SVG.
-
-**App (15)**
+**App (16)**
 
 | App | Cosa fa |
 | --- | --- |
-| Impostazioni | Wi-Fi, Bluetooth, Batteria, Schermo e luminosità (Liquid Glass), Sfondo, icone, suoni, Full immersione, Info, ripristino |
+| Impostazioni | Aspetto e Liquid Glass, Apple Intelligence e Siri, Wi-Fi, Bluetooth, Batteria, Sfondo, impostazioni per ogni app, Info, ripristino |
+| Siri | Conversazione con Siri, suggerimenti, dettatura dove il browser la supporta |
 | Calcolatrice | Espressioni con precedenza degli operatori, formato italiano (1.234,5), tastiera fisica |
-| Orologio | Ora nel mondo, sveglie che suonano davvero, cronometro con giri, timer con attività nella Dynamic Island |
-| Meteo | Dati reali da Open-Meteo per 4 città, previsioni orarie e a 10 giorni, sfondi animati; dati dimostrativi se offline |
+| Orologio | Ora nel mondo, sveglie che suonano davvero, cronometro con giri, timer nella Dynamic Island |
+| Meteo | Dati reali da Open-Meteo per 4 città, previsioni orarie e a 10 giorni; dati dimostrativi se offline |
 | Note | Note salvate, ricerca, note fissate, titolo automatico dalla prima riga |
-| Promemoria | Elenchi, elenchi smart (Oggi, Programmati, Tutti, Contrassegnati), modifica in linea |
+| Promemoria | Elenchi, elenchi smart, date e ore scritte in linguaggio naturale |
 | Calendario | Vista mensile, agenda del giorno, creazione ed eliminazione di eventi |
-| Foto | Libreria di foto generate al momento, album, preferiti, visualizzatore con scorrimento |
-| Fotocamera | Fotocamera vera (anteriore e posteriore) o anteprima simulata, zoom, modalità; gli scatti finiscono in Foto |
-| Messaggi | Conversazioni con risposte simulate, indicatore di scrittura, notifiche e badge |
-| Telefono | Preferiti, Recenti, Contatti, tastierino con toni DTMF, chiamata con timer nella Dynamic Island |
-| Musica | 8 brani generati dal vivo con Web Audio, mini player, player a schermo intero, controlli ovunque |
-| Safari | Pagina iniziale, preferiti, barra indirizzi in vetro, navigazione (dove i siti lo consentono) |
+| Foto | Libreria di foto generate al momento, album, preferiti, visualizzatore |
+| Fotocamera | Fotocamera vera o simulata, controlli personalizzabili, timer, formati, stili, modalità Siri |
+| Messaggi | Conversazioni con risposte simulate, disegni, notifiche e badge |
+| Telefono | Preferiti, Recenti, Contatti, tastierino con toni DTMF, chiamata nella Dynamic Island |
+| Musica | 8 brani generati dal vivo con Web Audio, mini player, player a schermo intero |
+| Safari | Pagina iniziale, preferiti, barra indirizzi in vetro, navigazione dove i siti lo consentono |
 | Mappe | OpenStreetMap, ricerca luoghi con Nominatim, livelli, posizione |
 | Bussola | Sensori del telefono oppure ghiera da ruotare col mouse |
 
-Note, promemoria, eventi, messaggi, sveglie, foto scattate, disposizione della Home e impostazioni sono salvati nel browser (`localStorage`). Per ripartire da zero usa *Impostazioni › Generali › Trasferisci o inizializza iPhone*.
+Note, promemoria, eventi, messaggi, sveglie, foto scattate, conversazione con Siri, disposizione della Home e impostazioni sono salvati nel browser (`localStorage`). Chi aveva usato la versione iOS 26 ritrova i propri dati. Per ripartire da zero: *Impostazioni › Generali › Trasferisci o inizializza iPhone*.
 
 ## Come è fatto il Liquid Glass
 
-- `css/glass.css` definisce la classe `.glass`: sfondo traslucido, `backdrop-filter` con sfocatura, saturazione e luminosità, un bordo speculare disegnato con una maschera e un riflesso interno. Lo stesso elemento cambia aspetto sopra lo sfondo, nelle app chiare e nelle app scure tramite variabili CSS.
-- `js/core/glass.js` aggiunge la rifrazione nei browser Chromium. Per ogni elemento genera una mappa di spostamento con la forma della lente (smussatura convessa sul bordo arrotondato) e la applica con un filtro SVG usato come `backdrop-filter: url(#…)`.
-- Chromium sposta l'origine dei filtri SVG in base all'ombra esterna dell'elemento. Per questo il filtro vive su un livello interno `.lg-lens` senza ombre.
+- `css/glass.css` definisce la classe `.glass`. Ogni contesto (sopra lo sfondo, app chiare, app scure) dichiara due estremi, trasparente e colorato, che vengono mescolati con `color-mix()` in base alla variabile `--gt` del cursore. Anche sfocatura e saturazione seguono il cursore. Bordo speculare con una maschera, bordo scurito e riflesso interno.
+- `js/core/glass.js` aggiunge la rifrazione nei browser Chromium: genera una mappa di spostamento con la forma della lente e la applica con un filtro SVG usato come `backdrop-filter: url(#…)`.
+- Chromium sposta l'origine dei filtri SVG in base all'ombra esterna dell'elemento: per questo il filtro vive su un livello interno `.lg-lens` senza ombre.
 
 ## Struttura
 
 ```
 index.html               struttura della pagina e caricamento degli script
 css/base.css             cornice del dispositivo, colori di sistema, temi
-css/glass.css            materiale Liquid Glass
-css/system.css           barra di stato, Dynamic Island, Home, blocco, Centro di Controllo…
+css/glass.css            materiale Liquid Glass con livello di trasparenza continuo
+css/system.css           barra di stato, Dynamic Island, Siri, Home, widget, blocco, Centro di Controllo…
 css/ui.css               componenti: navigazione, liste, interruttori, tab bar, fogli, avvisi
 css/apps.css             stili delle singole app
 js/core/os.js            stato, impostazioni, eventi, formattazione in italiano
+js/core/siri.js          comprensione delle richieste, date in linguaggio naturale, scheda nell'isola
 js/core/appmanager.js    apertura e chiusura delle app, gesto Home, multitasking
 js/core/homescreen.js    pagine, dock, widget, modalità modifica, Libreria app
-js/core/…                blocco, notifiche, Centro di Controllo, isola, audio, icone, sfondi
-js/apps/*.js             le 15 app
+js/core/widgets.js       widget in taglia piccola, media ed extra-large
+js/core/…                blocco, notifiche, Centro di Controllo, isola, audio, icone, sfondi, gesti
+js/apps/*.js             le 16 app
 fonts/, icons/           font Inter (licenza OFL) e icone dell'app web
 ```
 
@@ -109,10 +133,13 @@ Per aggiungere un'app, crea un file in `js/apps/`, chiama `OS.registerApp({ id, 
 
 ## Limiti
 
-- Molti siti vietano di essere mostrati dentro un'altra pagina, quindi in Safari alcuni restano vuoti; in quel caso compare un link per aprirli in una nuova scheda.
+- **Siri è simulata:** capisce un insieme ampio ma limitato di richieste con regole scritte a mano; non è un modello di intelligenza artificiale e non sa rispondere a domande di cultura generale (in quel caso propone la ricerca web).
+- **Dettatura:** usa il riconoscimento vocale del browser. In Chrome l'audio viene elaborato dai server di Google; in alcuni browser non è disponibile e Siri si apre per scrivere.
+- **Modalità Siri della Fotocamera:** analizza colori, luce, cielo e vegetazione dell'inquadratura; non riconosce oggetti specifici.
+- Molti siti vietano di essere mostrati dentro un'altra pagina, quindi in Safari alcuni restano vuoti; compare un link per aprirli in una nuova scheda.
 - Meteo, Mappe e la ricerca luoghi richiedono la connessione. Il Meteo ha dati di riserva offline.
-- Una pagina web non può sostituire il vero sistema: su un iPhone vero i gesti dai bordi possono essere intercettati da Safari o da iOS.
+- Su un iPhone vero i gesti dai bordi possono essere intercettati da Safari o da iOS.
 
 ## Note legali
 
-Progetto amatoriale a scopo didattico, non affiliato né approvato da Apple Inc. "iOS", "iPhone" e "Liquid Glass" sono marchi dei rispettivi proprietari. Icone, sfondi, suoni e musica sono originali e generati dal codice. Il font Inter è distribuito con licenza SIL Open Font License 1.1 (`fonts/LICENSE-Inter.txt`).
+Progetto amatoriale a scopo didattico, non affiliato né approvato da Apple Inc. "iOS", "iPhone", "Siri" e "Liquid Glass" sono marchi dei rispettivi proprietari. Icone, sfondi, suoni e musica sono originali e generati dal codice. Il font Inter è distribuito con licenza SIL Open Font License 1.1 (`fonts/LICENSE-Inter.txt`).

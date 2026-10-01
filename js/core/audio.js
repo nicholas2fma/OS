@@ -187,6 +187,14 @@
 
     toggle() { this.playing ? this.pause() : this.play(); },
 
+    /** iOS 27: swiping away Now Playing clears it from the Lock Screen and the Dynamic Island */
+    clear() {
+      this.stop();
+      this.song = null;
+      OS.emit('music:change', null);
+      OS.emit('music:state', false);
+    },
+
     stop(silent) {
       clearInterval(this.timer);
       this.timer = null;

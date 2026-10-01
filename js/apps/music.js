@@ -69,6 +69,7 @@
   function islandActivity() {
     const mu = M();
     if (!mu.song) { OS.Island.clear('music'); return; }
+    if (!mu.playing && !OS.Island.has('music') && mu.position() === 0) return;
     if (!mu.playing && !OS.Island.has('music')) return;
     OS.Island.set('music', {
       priority: 1,

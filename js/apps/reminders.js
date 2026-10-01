@@ -27,7 +27,15 @@
     data: OS.store.get('reminders', D),
     save() { OS.store.set('reminders', this.data); OS.emit('reminders'); updateBadge(); },
     list(id) { return this.data.lists.find((l) => l.id === id); },
+    /** iOS 27: reminders from natural language (used by Siri and the inline editor) */
+    addNatural(w, listId) {
+      const item = { id: 'r' + Date.now(), list: listId || this.data.lists[0].id, title: w.title, done: false, flagged: false, due: w.day ? w.day.toDateString() : null, time: w.time || null };
+      this.data.items.push(item);
+      this.save();
+      return item;
+    },
   };
+  OS.RemindersStore = Store;
 
   function updateBadge() {
     const n = Store.data.items.filter((i) => !i.done && i.due === today()).length;
@@ -118,7 +126,8 @@
 
             function rowHTML(i) {
               const l = Store.list(i.list) || { color: spec.color };
-              const sub = [i.due === today() ? 'Oggi' : i.due ? new Date(i.due).toLocaleDateString('it-IT') : '', spec.list ? '' : (Store.list(i.list) || {}).name].filter(Boolean).join(' · ');
+              const when = i.due ? OS.NL.whenLabel(new Date(i.due), i.time) : (i.time || '');
+              const sub = [when, spec.list ? '' : (Store.list(i.list) || {}).name].filter(Boolean).join(' · ');
               return `<div class="rem-item ${i.done ? 'done' : ''}" data-id="${i.id}">
                 <button class="rem-check" style="--c:${l.color}" aria-label="Completa"></button>
                 <div class="rem-body"><input class="rem-title" value="${OS.esc(i.title)}" ${spec.readOnly ? 'readonly' : ''}>${sub ? `<div class="rem-sub">${OS.esc(sub)}</div>` : ''}</div>
@@ -170,7 +179,17 @@
               if (!it) return;
               const v = inp.value.trim();
               if (!v) { Store.data.items = Store.data.items.filter((x) => x !== it); Store.save(); paint(); return; }
-              if (v !== it.title) { it.title = v; Store.save(); }
+              if (v === it.title) return;
+              // iOS 27: "Chiamare Marco domani alle 9" fills in date and time by itself
+              const w = OS.NL.parseWhen(v);
+              if ((w.day || w.time) && w.title) {
+                it.title = w.title;
+                if (w.day) it.due = w.day.toDateString();
+                if (w.time) it.time = w.time;
+                Store.save();
+                paint();
+                OS.Island.flash({ left: OS.sym('calendar', { size: 18 }), right: `<span>${OS.esc(OS.NL.whenLabel(w.day, w.time))}</span>`, width: 230, duration: 1500 });
+              } else { it.title = v; Store.save(); }
             });
             listEl.addEventListener('keydown', (e) => {
               e.stopPropagation();

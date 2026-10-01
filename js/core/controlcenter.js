@@ -31,7 +31,7 @@
       <button class="cc-round glass ${OS.isDark() ? 'on' : ''}" data-t="dark" aria-label="Modalità scura">${sym('circle-half')}</button>
       <button class="cc-round glass ${s.silent ? 'on red' : ''}" data-t="silent" aria-label="Modalità silenziosa">${sym(s.silent ? 'bell-slash' : 'bell')}</button>
       <button class="cc-round glass ${s.lowPower ? 'on' : ''}" data-t="lowPower" aria-label="Risparmio energetico" style="${s.lowPower ? 'background:var(--yellow);color:#000' : ''}">${sym('battery')}</button>
-      <button class="cc-round glass ${s.glass === 'tinted' ? 'on' : ''}" data-t="glass" aria-label="Liquid Glass colorato">${sym('sparkles')}</button>`;
+      <button class="cc-round glass ${s.glassLevel > .5 ? 'on' : ''}" data-t="glass" aria-label="Liquid Glass colorato">${sym('sparkles')}</button>`;
   }
 
   function mediaHTML() {
@@ -48,6 +48,9 @@
   }
 
   function render() {
+    const slot = cc.querySelector('.cc-appset-slot');
+    const app = OS.Apps.mode === 'app' && OS.Apps.current && OS.Apps.current.id !== 'settings' ? OS.Apps.current.def : null;
+    slot.innerHTML = app ? `<button class="cc-appset glass" data-top="appset">${OS.icon(app.id, 'xs')}<span>Impostazioni di ${OS.esc(app.name)}</span></button>` : '';
     grid.innerHTML = html();
     grid.querySelector('.cc-media').innerHTML = mediaHTML();
     paintSliders();
@@ -114,7 +117,7 @@
       case 'dark': OS.set('appearance', OS.isDark() ? 'light' : 'dark'); break;
       case 'silent': OS.toggle('silent'); break;
       case 'lowPower': OS.toggle('lowPower'); break;
-      case 'glass': OS.set('glass', s.glass === 'tinted' ? 'clear' : 'tinted'); break;
+      case 'glass': OS.set('glassLevel', s.glassLevel > .5 ? .2 : .85); break;
       case 'media': close(); OS.Apps.open('music'); return;
       default: return;
     }
@@ -150,7 +153,7 @@
   function init() {
     cc = document.getElementById('cc');
     cc.innerHTML = `<div class="cc-backdrop"></div><div class="cc-body">
-      <div class="cc-top"><button class="glass" data-top="edit" aria-label="Modifica">${OS.sym('plus', { size: 18, stroke: 2.4 })}</button><button class="glass" data-top="power" aria-label="Spegni">${OS.sym('power', { size: 18, stroke: 2.4 })}</button></div>
+      <div class="cc-top"><button class="glass" data-top="edit" aria-label="Modifica">${OS.sym('plus', { size: 18, stroke: 2.4 })}</button><div class="cc-appset-slot"></div><button class="glass" data-top="power" aria-label="Spegni">${OS.sym('power', { size: 18, stroke: 2.4 })}</button></div>
       <div class="cc-grid"></div></div>`;
     backdrop = cc.querySelector('.cc-backdrop');
     body = cc.querySelector('.cc-body');
@@ -176,6 +179,7 @@
       const b = e.target.closest('[data-top]');
       if (!b) return;
       if (b.dataset.top === 'power') { close(); setTimeout(() => OS.Lock.sleep(), 200); }
+      if (b.dataset.top === 'appset') { const id = OS.Apps.current && OS.Apps.current.id; close(); if (id) OS.Apps.open('settings', { data: { page: 'app', app: id } }); }
       if (b.dataset.top === 'edit') OS.Island.flash({ left: OS.sym('square-grid', { size: 18 }), right: '<span>Personalizzazione presto</span>', width: 280 });
     });
 
@@ -200,7 +204,7 @@
 
     OS.on('settings', (k) => {
       if (k === 'brightness') applyBrightness();
-      if (OS.state.ccOpen && k !== 'brightness' && k !== 'volume') render();
+      if (OS.state.ccOpen && k !== 'brightness' && k !== 'volume' && k !== 'glassLevel') render();
     });
     const refreshMedia = () => { const m = grid.querySelector('.cc-media'); if (m) m.innerHTML = mediaHTML(); };
     OS.on('music:change', refreshMedia);

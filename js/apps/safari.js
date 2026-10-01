@@ -8,7 +8,7 @@
     { name: 'Wikipedia', url: 'https://it.m.wikipedia.org/wiki/Pagina_principale', color: '#f2f2f2', fg: '#000', letter: 'W' },
     { name: 'OpenStreetMap', url: 'https://www.openstreetmap.org/export/embed.html?bbox=12.43,41.87,12.53,41.92&layer=mapnik', color: '#7ebc6f', fg: '#fff', letter: 'O' },
     { name: 'Example', url: 'https://example.com/', color: '#5e5ce6', fg: '#fff', letter: 'E' },
-    { name: 'Info', url: 'about:ios26', color: 'linear-gradient(135deg,#5ac8fa,#007aff)', fg: '#fff', letter: '26' },
+    { name: 'Info', url: 'about:ios', color: 'linear-gradient(135deg,#5ac8fa,#007aff)', fg: '#fff', letter: '27' },
   ];
 
   const ABOUT = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -16,22 +16,23 @@
     h1{font-size:34px;letter-spacing:-.02em;margin:0 0 8px}h2{font-size:20px;margin:28px 0 6px}p,li{color:#424245}code{background:#e8e8ed;padding:1px 6px;border-radius:6px}
     .card{background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.06);border-radius:22px;padding:16px 18px;margin:14px 0;box-shadow:0 8px 24px rgba(0,0,0,.06)}
     @media (prefers-color-scheme:dark){body{background:linear-gradient(180deg,#10131c,#000);color:#f5f5f7}p,li{color:#a1a1a6}.card{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.08)}code{background:#2c2c2e}}</style></head>
-    <body><h1>iOS 26 Web</h1><p>Una ricreazione dell'interfaccia di iOS 26 costruita interamente con HTML, CSS e JavaScript, senza librerie.</p>
+    <body><h1>iOS 27 Web</h1><p>Una ricreazione dell'interfaccia di iOS 27 costruita interamente con HTML, CSS e JavaScript, senza librerie.</p>
     <div class="card"><b>Liquid Glass</b><p>Il materiale di vetro usa <code>backdrop-filter</code> con sfocatura e saturazione, un bordo speculare e, nei browser Chromium, un filtro SVG di spostamento che rifrange lo sfondo ai bordi.</p></div>
+    <div class="card"><b>Novità di iOS 27</b><ul><li>Siri nella Dynamic Island: scorri giù dal centro in alto per Cerca o chiedi</li><li>Cursore Liquid Glass in Impostazioni › Aspetto</li><li>Widget extra-large a pagina intera</li><li>Orologio compatto e cursore del volume sulla schermata di blocco</li><li>Fotocamera con controlli personalizzabili e modalità Siri</li></ul></div>
     <div class="card"><b>Cosa provare</b><ul><li>Dynamic Island: avvia un timer o un brano</li><li>Multitasking: scorri in alto dalla barra e fermati</li><li>Modifica Home: tieni premuta un'icona</li><li>Stili icone: Impostazioni › Schermata Home</li></ul></div>
     <h2>Perché il web e non Godot?</h2><p>Un'interfaccia come iOS è fatta di testo, liste, scorrimento e materiali traslucidi: il browser li offre in modo nativo (tipografia, accessibilità, sfocature hardware), gira ovunque, anche su un vero telefono, senza installare nulla.</p></body></html>`;
 
   function normalize(input) {
     const q = input.trim();
     if (!q) return null;
-    if (q === 'about:ios26') return q;
+    if (q === 'about:ios') return q;
     if (/^https?:\/\//i.test(q)) return q;
     if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(q)) return 'https://' + q;
     return 'https://it.m.wikipedia.org/w/index.php?search=' + encodeURIComponent(q);
   }
 
   const host = (url) => {
-    if (url === 'about:ios26') return 'iOS 26 Web';
+    if (url === 'about:ios') return 'iOS 27 Web';
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; }
   };
 
@@ -79,15 +80,15 @@
         current = url;
         start.style.display = 'none';
         web.style.display = 'block';
-        hostEl.innerHTML = (url.startsWith('https') || url === 'about:ios26' ? OS.sym('lock-fill', { size: 12 }) + ' ' : '') + OS.esc(host(url));
+        hostEl.innerHTML = (url.startsWith('https') || url === 'about:ios' ? OS.sym('lock-fill', { size: 12 }) + ' ' : '') + OS.esc(host(url));
         progress.classList.remove('done');
         void progress.offsetWidth;
         progress.classList.add('loading');
-        if (url === 'about:ios26') { frame.removeAttribute('src'); frame.srcdoc = ABOUT; }
+        if (url === 'about:ios') { frame.removeAttribute('src'); frame.srcdoc = ABOUT; }
         else { frame.removeAttribute('srcdoc'); frame.src = url; }
         clearTimeout(hintT);
         hint.classList.remove('show');
-        if (url !== 'about:ios26') {
+        if (url !== 'about:ios') {
           hintT = setTimeout(() => {
             hint.innerHTML = `Se la pagina resta vuota, il sito non consente di essere incorporato. <a href="${OS.esc(url)}" target="_blank" rel="noopener">Apri in una nuova scheda</a>`;
             hint.classList.add('show');
@@ -113,7 +114,7 @@
       address.addEventListener('click', (e) => {
         if (e.target.closest('[data-a="reload"]')) { if (current) go(current, false); return; }
         address.classList.add('editing');
-        input.value = current && current !== 'about:ios26' ? current : '';
+        input.value = current && current !== 'about:ios' ? current : '';
         input.focus();
         input.select();
       });
@@ -136,7 +137,7 @@
         if (a.dataset.a === 'tabs') {
           OS.UI.menu(a, [
             { label: 'Pagina iniziale', icon: 'house', onTap: () => { history.length = 0; home(); } },
-            { label: 'Apri in una nuova finestra', icon: 'square-on-square', onTap: () => { if (current && current !== 'about:ios26') window.open(current, '_blank', 'noopener'); } },
+            { label: 'Apri in una nuova finestra', icon: 'square-on-square', onTap: () => { if (current && current !== 'about:ios') window.open(current, '_blank', 'noopener'); } },
             { label: 'Copia link', icon: 'share', onTap: () => { if (current && navigator.clipboard) navigator.clipboard.writeText(current).catch(() => {}); } },
           ], { preview: false });
         }

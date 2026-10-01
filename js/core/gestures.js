@@ -53,11 +53,16 @@
       const p = OS.point(e);
       const W = OS.state.width, H = OS.state.height;
 
-      // top edge → Control Center (right) or Notification Center (left)
-      if (p.y < TOP_ZONE && !OS.state.ccOpen && !OS.state.ncOpen && !e.target.closest('#island, #island-bubble')) {
-        const kind = p.x > W * .6 ? 'cc' : 'nc';
+      // top edge. iOS 27 with Siri AI: left → Notification Center, centre (Dynamic Island) →
+      // Cerca o chiedi, right → Control Center. Without Siri AI: the iOS 26 map.
+      const onIsland = !!e.target.closest('#island, #island-bubble');
+      if (p.y < TOP_ZONE + (onIsland ? 10 : 0) && !OS.state.ccOpen && !OS.state.ncOpen && !OS.state.spotlightOpen) {
+        let kind;
+        if (OS.settings.siriAI && !OS.state.locked) kind = p.x > W * .66 ? 'cc' : p.x < W * .34 ? 'nc' : 'ask';
+        else kind = p.x > W * .6 ? 'cc' : 'nc';
+        if (onIsland && kind !== 'ask') return;
         g = { kind, x: p.x, y: p.y, t: performance.now(), id: e.pointerId, active: false };
-        e.stopPropagation();
+        if (!onIsland) e.stopPropagation();
         return;
       }
 
@@ -77,10 +82,12 @@
         g.active = true;
         if (g.kind === 'cc') OS.CC.beginDrag();
         if (g.kind === 'nc') OS.NC.beginDrag();
+        if (g.kind === 'ask') { OS.Island.suppressNextClick(); OS.Spotlight.beginPull(); }
         if (g.kind === 'home') g.app = g.mode === 'app' && OS.Apps.dragStart();
       }
       if (g.kind === 'cc') OS.CC.setProgress(dy / 260);
       if (g.kind === 'nc') OS.NC.setProgress(dy / (OS.state.height * .7));
+      if (g.kind === 'ask') OS.Spotlight.pull(dy);
       if (g.kind === 'home' && g.app) {
         if (Math.abs(p.y - (g.py || p.y)) > 2 || Math.abs(p.x - (g.px || p.x)) > 2) g.lastMove = performance.now();
         g.px = p.x; g.py = p.y;
@@ -105,6 +112,10 @@
       if (s.kind === 'nc') {
         if (!s.active) return;
         OS.NC.endDrag(dy > 90 || v > .4);
+        return;
+      }
+      if (s.kind === 'ask') {
+        if (s.active) OS.Spotlight.endPull(dy, v);
         return;
       }
       // home gesture
@@ -212,7 +223,8 @@
       else if (k === 'c') { if (OS.state.ccOpen) OS.CC.close(); else { if (OS.state.ncOpen) OS.NC.close(); OS.CC.open(); } }
       else if (k === 'n') { if (OS.state.ncOpen) OS.NC.close(); else { if (OS.state.ccOpen) OS.CC.close(); OS.NC.open(); } }
       else if (k === 'l') OS.Lock.power();
-      else if (e.key === '/' && OS.Apps.mode === 'home' && !OS.state.locked) { e.preventDefault(); OS.Spotlight.open(); }
+      else if (k === 's') OS.Siri.activate();
+      else if (e.key === '/' && !OS.state.locked && (OS.Apps.mode === 'home' || OS.settings.siriAI)) { e.preventDefault(); OS.Spotlight.open(); }
       else if (e.key === 'ArrowRight' && OS.Apps.mode === 'home' && !OS.state.locked) OS.Home.goToPage(OS.Home.page + 1);
       else if (e.key === 'ArrowLeft' && OS.Apps.mode === 'home' && !OS.state.locked) OS.Home.goToPage(OS.Home.page - 1);
     });
@@ -221,7 +233,19 @@
   function init() {
     installEdges();
     installKeys();
-    document.querySelectorAll('[data-hw]').forEach((b) => b.addEventListener('click', () => hardware(b.dataset.hw)));
+    document.querySelectorAll('[data-hw]').forEach((b) => {
+      if (b.dataset.hw !== 'power') { b.addEventListener('click', () => hardware(b.dataset.hw)); return; }
+      // side button: press = lock / wake, hold = Siri (iOS 27)
+      let t = null;
+      let long = false;
+      b.addEventListener('pointerdown', () => {
+        long = false;
+        if (OS.settings.siriButton === false) return;
+        t = setTimeout(() => { long = true; OS.Siri.activate(); }, 550);
+      });
+      b.addEventListener('pointerup', () => { clearTimeout(t); if (!long) hardware('power'); });
+      b.addEventListener('pointerleave', () => clearTimeout(t));
+    });
     window.addEventListener('resize', resize);
     // prevent page zoom / context menus that break the illusion
     window.addEventListener('contextmenu', (e) => { if (!e.target.closest('input, textarea, [contenteditable]')) e.preventDefault(); });

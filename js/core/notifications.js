@@ -75,9 +75,11 @@
     const host = document.getElementById('banners');
     host.querySelectorAll('.notif').forEach((b) => { b.classList.add('hide'); setTimeout(() => b.remove(), 400); });
     const el = OS.el(cardHTML(n));
+    if (OS.settings.siriAI) el.classList.add('from-left');
     host.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
     let start = null;
+    let startX = 0;
     let moved = false;
     const dismiss = () => {
       clearTimeout(bannerTimer);
@@ -88,6 +90,7 @@
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       start = OS.point(e).y;
+      startX = OS.point(e).x;
       moved = false;
       el.style.transition = 'none';
     });
@@ -95,14 +98,14 @@
       if (start == null) return;
       const dy = OS.point(e).y - start;
       if (Math.abs(dy) > 5) moved = true;
-      el.style.transform = `translateY(${Math.min(dy, dy * .2)}px)`;
+      el.style.transform = el.classList.contains('from-left') ? `translate(${Math.min(0, OS.point(e).x - startX)}px, ${Math.min(dy, dy * .2)}px)` : `translateY(${Math.min(dy, dy * .2)}px)`;
     });
     el.addEventListener('pointerup', (e) => {
       if (start == null) return;
       const dy = OS.point(e).y - start;
       start = null;
       el.style.transition = '';
-      if (dy < -30) { dismiss(); return; }
+      if (dy < -30 || OS.point(e).x - startX < -60) { dismiss(); return; }
       el.style.transform = '';
       if (!moved) { dismiss(); activate(n); }
     });

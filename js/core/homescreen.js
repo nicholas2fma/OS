@@ -10,8 +10,9 @@
       [{ w: 'weather', size: '2x2' }, { w: 'calendar', size: '2x2' },
         'photos', 'camera', 'calendar', 'clock',
         'weather', 'maps', 'notes', 'reminders',
-        'calculator', 'compass', 'settings'],
+        'calculator', 'compass', 'siri', 'settings'],
       [{ w: 'music', size: '4x2' }, { w: 'clock', size: '2x2' }, { w: 'battery', size: '2x2' }],
+      [{ w: 'photos', size: '4x6' }],
     ],
     dock: ['phone', 'safari', 'messages', 'music'],
   };
@@ -19,7 +20,7 @@
   const LIBRARY = [
     { name: 'Suggerimenti', apps: null },
     { name: 'Aggiunte di recente', apps: 'recent' },
-    { name: 'Utility', apps: ['calculator', 'compass', 'clock', 'settings'] },
+    { name: 'Utility', apps: ['siri', 'calculator', 'compass', 'clock', 'settings'] },
     { name: 'Produttività e finanza', apps: ['notes', 'reminders', 'calendar'] },
     { name: 'Creatività', apps: ['photos', 'camera'] },
     { name: 'Social', apps: ['messages', 'phone'] },
@@ -53,9 +54,27 @@
     layout.pages = layout.pages.map((p) => p.filter((it) => typeof it !== 'string' || OS.apps[it]));
     layout.dock = layout.dock.filter((id) => OS.apps[id]);
     if (!layout.pages.length) layout.pages.push([]);
+    fitPages();
+    // layouts saved by the iOS 26 version: show off the new extra-large widget once
+    if (saved && !OS.store.get('home:ios27', false)) layout.pages.push([{ w: 'photos', size: '4x6' }]);
+    OS.store.set('home:ios27', true);
+    if (saved) saveLayout(); // keep migrations (new apps, the iOS 27 widget page) across reloads
   }
 
   function saveLayout() { OS.store.set('home', layout); }
+
+  const CELLS = { '2x2': 4, '4x2': 8, '4x6': 24 };
+  const cost = (it) => (typeof it === 'string' ? 1 : CELLS[it.size] || 4);
+  /** a page holds 4×6 cells: overflowing items move to the following page */
+  function fitPages() {
+    for (let i = 0; i < layout.pages.length; i++) {
+      const pg = layout.pages[i];
+      while (pg.length > 1 && pg.reduce((s, it) => s + cost(it), 0) > 24) {
+        if (!layout.pages[i + 1]) layout.pages.push([]);
+        layout.pages[i + 1].unshift(pg.pop());
+      }
+    }
+  }
 
   /* ---------- rendering ---------- */
 
@@ -75,7 +94,8 @@
     if (!k) return '';
     return `<div class="home-item widget w${it.size}" data-widget="${it.w}" data-size="${it.size}" data-idx="${i}">
       <button class="remove-btn" aria-label="Rimuovi">${OS.sym('minus', { size: 12, stroke: 3.4 })}</button>
-      ${OS.Widgets.boxHTML(it.w)}
+      ${k.sizes.length > 1 ? `<button class="resize-handle" aria-label="Ridimensiona">${OS.sym('arrow-up-arrow-down', { size: 13, stroke: 2.6, style: 'transform:rotate(-45deg)' })}</button>` : ''}
+      ${OS.Widgets.boxHTML(it.w, it.size)}
       <span class="home-label">${OS.esc(k.name)}</span>
     </div>`;
   }
@@ -213,6 +233,7 @@
     // drop empty trailing pages (keep at least one)
     while (pages.length > 1 && !pages[pages.length - 1].length) pages.pop();
     layout.pages = pages;
+    fitPages();
     layout.dock = Array.from(dockEl.querySelectorAll(':scope > .home-item')).map((el) => el.dataset.app).filter(Boolean);
     saveLayout();
     render();
@@ -252,33 +273,62 @@
   }
 
   function addWidgetSheet() {
-    OS.UI.sheet(document.getElementById('overlay'), {
+    const overlay = document.getElementById('overlay');
+    overlay.classList.add('active');
+    OS.UI.sheet(overlay, {
       title: 'Aggiungi widget',
+      large: true,
       left: { icon: 'xmark', label: 'Chiudi' },
       render(body, api) {
-        document.getElementById('overlay').classList.add('active');
-        const grid = OS.el('<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:6px 20px 10px"></div>');
-        Object.keys(OS.Widgets.KINDS).forEach((kind) => {
-          const k = OS.Widgets.KINDS[kind];
-          const size = k.sizes[0];
-          const cell = OS.el(`<button style="display:flex;flex-direction:column;align-items:center;gap:8px;${size === '4x2' ? 'grid-column:span 2' : ''}">
-            <div style="width:100%;${size === '4x2' ? 'height:150px' : 'aspect-ratio:1'};pointer-events:none;border-radius:26px;overflow:hidden" class="surface-dark">${OS.Widgets.boxHTML(kind)}</div>
-            <span style="font-size:14px;font-weight:600">${OS.esc(k.name)}</span></button>`);
-          cell.firstElementChild.firstElementChild.style.height = '100%';
-          cell.addEventListener('click', () => {
-            const target = Math.min(page, layout.pages.length - 1);
-            layout.pages[target].unshift({ w: kind, size });
+        const W = OS.Widgets;
+        Object.keys(W.KINDS).forEach((kind) => {
+          const k = W.KINDS[kind];
+          let size = k.sizes[k.sizes.length - 1];
+          const sec = OS.el(`<div class="wpick surface-dark">
+            <div class="wpick-head">${OS.icon(k.app, 'xs')}<b>${OS.esc(k.name)}</b></div>
+            <div class="wpick-sizes">${k.sizes.map((s) => `<button data-s="${s}">${W.SIZE_NAMES[s]}</button>`).join('')}</div>
+            <div class="wpick-prev"></div>
+            <button class="btn filled wpick-add">Aggiungi widget</button></div>`);
+          const prev = sec.querySelector('.wpick-prev');
+          const paint = () => {
+            sec.querySelectorAll('[data-s]').forEach((b) => b.classList.toggle('on', b.dataset.s === size));
+            prev.className = 'wpick-prev p' + size;
+            prev.innerHTML = W.boxHTML(kind, size);
+          };
+          sec.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-s]');
+            if (b) { size = b.dataset.s; paint(); return; }
+            if (!e.target.closest('.wpick-add')) return;
+            let target = Math.min(page, layout.pages.length - 1);
+            if (size === '4x6') { layout.pages.splice(target + 1, 0, [{ w: kind, size }]); target++; }
+            else layout.pages[target].unshift({ w: kind, size });
+            fitPages();
             saveLayout();
             render();
+            goToPage(target, false);
             if (jiggle) home.classList.add('jiggle');
             api.close();
           });
-          grid.appendChild(cell);
+          paint();
+          body.appendChild(sec);
         });
-        body.appendChild(grid);
       },
-      onClose() { setTimeout(() => { const o = document.getElementById('overlay'); if (!o.children.length) o.classList.remove('active'); }, 520); },
+      onClose() { setTimeout(() => { if (!overlay.children.length) overlay.classList.remove('active'); }, 520); },
     });
+  }
+
+  /** iOS 27: drag the corner handle (or tap it) to change a widget's size */
+  function resizeWidget(item, dir) {
+    const k = OS.Widgets.KINDS[item.dataset.widget];
+    const i = k.sizes.indexOf(item.dataset.size);
+    const next = dir === 0 ? k.sizes[(i + 1) % k.sizes.length] : k.sizes[OS.clamp(i + dir, 0, k.sizes.length - 1)];
+    if (!next || next === item.dataset.size) return;
+    item.dataset.size = next;
+    syncFromDOM();
+    home.classList.add('jiggle');
+    OS.haptic(12);
+    const pageWith = layout.pages.findIndex((pg) => pg.some((it) => typeof it !== 'string' && it.w === item.dataset.widget && it.size === next));
+    if (pageWith >= 0 && pageWith !== page) goToPage(pageWith);
   }
 
   function customizeSheet() {
@@ -340,6 +390,7 @@
       g = {
         id: e.pointerId, x: p.x, y: p.y, t: performance.now(), item, target: e.target,
         axis: null, page0: page, long: false, dragging: false,
+        resize: jiggle && e.target.closest('.resize-handle') ? item : null,
       };
       clearTimeout(lpTimer);
       if (!jiggle) {
@@ -357,6 +408,12 @@
       const p = OS.point(e);
       const dx = p.x - g.x, dy = p.y - g.y;
       if (g.dragging) { dragMove(p); return; }
+      if (g.resize) {
+        const box = g.resize.querySelector('.widget-box');
+        box.style.transform = `scale(${OS.clamp(1 + (dx + dy) / 600, .85, 1.15)})`;
+        box.style.transformOrigin = 'top left';
+        return;
+      }
       if (!g.axis) {
         if (Math.hypot(dx, dy) < 8) return;
         clearTimeout(lpTimer);
@@ -394,6 +451,12 @@
       const dx = p.x - s.x, dy = p.y - s.y;
       const dt = Math.max(1, performance.now() - s.t);
       if (s.dragging) { dragEnd(); return; }
+      if (s.resize) {
+        s.resize.querySelector('.widget-box').style.transform = '';
+        const d = dx + dy;
+        resizeWidget(s.resize, Math.abs(d) < 12 ? 0 : d > 0 ? 1 : -1);
+        return;
+      }
       if (s.axis === 'x') {
         const v = dx / dt;
         let target = s.page0;

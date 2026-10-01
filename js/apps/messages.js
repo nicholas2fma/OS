@@ -19,8 +19,9 @@
   const now = Date.now();
   const m = (from, text, ago) => ({ from, text, time: now - ago * 60000 });
   const DEFAULT = {
-    benvenuto: { id: 'benvenuto', name: 'iOS 26 Web', avatar: 'linear-gradient(180deg,#5ac8fa,#007aff)', initials: '26', unread: 1, bot: 'help', messages: [
-      m('them', 'Ciao! 👋 Questo è un iPhone ricreato con tecnologie web.', 30),
+    benvenuto: { id: 'benvenuto', name: 'iOS 27 Web', avatar: 'linear-gradient(180deg,#5ac8fa,#007aff)', initials: '27', unread: 1, bot: 'help', messages: [
+      m('them', 'Ciao! 👋 Questo è un iPhone con iOS 27 ricreato con tecnologie web.', 30),
+      m('them', 'Novità: tieni premuto il tasto laterale (o premi S) per Siri, oppure scorri giù dal centro in alto per «Cerca o chiedi».', 30),
       m('them', 'Scorri in alto dalla barra in basso per tornare alla Home, tieni premuta un\'icona per modificare la schermata, e prova il Centro di Controllo dall\'angolo in alto a destra.', 29),
       m('them', 'Scrivimi "aiuto" per altri suggerimenti.', 29),
     ] },
@@ -39,7 +40,12 @@
   };
 
   const Store = {
-    chats: OS.store.get('messages', DEFAULT),
+    chats: (function () {
+      const c = OS.store.get('messages', DEFAULT);
+      // conversation saved by the iOS 26 version
+      if (c.benvenuto && c.benvenuto.name === 'iOS 26 Web') { c.benvenuto.name = 'iOS 27 Web'; c.benvenuto.initials = '27'; }
+      return c;
+    })(),
     save() { OS.store.set('messages', this.chats); updateBadge(); OS.emit('messages'); },
     sorted() { return Object.values(this.chats).sort((a, b) => last(b).time - last(a).time); },
   };
@@ -53,7 +59,7 @@
 
   const REPLIES = {
     help: [
-      [/aiuto|help|suggeriment/i, 'Ecco qualche idea: apri Musica e avvia un brano (lo vedrai nella Dynamic Island), avvia un timer in Orologio, cambia sfondo in Impostazioni › Sfondo, e prova lo stile icone "Trasparente".'],
+      [/aiuto|help|suggeriment/i, 'Ecco qualche idea: chiedi a Siri «imposta un timer di 5 minuti», aggiungi un widget extra-large tenendo premuto sulla Home, regola il Liquid Glass in Impostazioni › Aspetto, e prova la modalità Siri nella Fotocamera.'],
       [/glass|vetro|liquid/i, 'Il Liquid Glass usa backdrop-filter e, nei browser Chromium, un filtro SVG che piega la luce ai bordi. Puoi cambiare stile in Impostazioni › Schermo e luminosità.'],
       [/ciao|salve|hey/i, 'Ciao! Come posso aiutarti? Scrivi "aiuto" 😊'],
       [/grazie/i, 'Figurati! Buon divertimento 🎉'],
@@ -65,6 +71,7 @@
       [/grazie/i, ['Di niente! 😊', 'Figurati ❤️']],
       [/\?$/, ['Bella domanda 🤔', 'Direi di sì!', 'Non saprei, ti faccio sapere', 'Mmm, forse 😄']],
       [/foto|immagin/i, ['Mandamele appena puoi 📸', 'Che belle!']],
+      [/^disegno$/i, ['Che bel disegno! 🎨', 'Ahah, sei un artista 😄', 'Lo stampo e lo appendo al frigo 😂']],
       [/.*/, ['Ahah 😂', 'Ok perfetto 👍', 'Davvero?', 'Ci sentiamo dopo!', 'Va bene ❤️', 'Fantastico!', 'Hai ragione']],
     ],
   };
@@ -129,7 +136,7 @@
               <div class="msg-rows">${Store.sorted().map((c) => `<div class="msg-row" data-id="${c.id}">
                 <span class="msg-unread ${c.unread ? 'on' : ''}"></span>${avatarHTML(c, 52)}
                 <div class="msg-main"><div class="msg-top"><b>${OS.esc(c.name)}</b><span>${timeLabel(last(c).time)} ${OS.sym('chevron-right', { size: 12, stroke: 2.8 })}</span></div>
-                <div class="msg-prev">${OS.esc(last(c).from === 'me' ? 'Tu: ' + last(c).text : last(c).text)}</div></div></div>`).join('')}</div>`;
+                <div class="msg-prev">${OS.esc((last(c).from === 'me' ? 'Tu: ' : '') + (last(c).img ? 'Disegno' : last(c).text))}</div></div></div>`).join('')}</div>`;
             const input = body.querySelector('input');
             input.addEventListener('input', () => {
               const q = input.value.toLowerCase();
@@ -178,6 +185,7 @@
           const next = chat.messages[i + 1];
           const tail = !next || next.from !== msg.from || next.time - msg.time > 60000;
           if (chat.group && msg.from === 'them' && msg.sender && (i === 0 || chat.messages[i - 1].sender !== msg.sender)) html += `<div class="msg-sender">${OS.esc(msg.sender)}</div>`;
+          if (msg.img) { html += `<div class="bubble ${msg.from} img ${tail ? 'tail' : ''}"><img src="${OS.esc(msg.img)}" alt="Disegno"></div>`; return; }
           const emojiOnly = /^(\p{Extended_Pictographic}|\s){1,3}$/u.test(msg.text);
           html += `<div class="bubble ${msg.from} ${tail ? 'tail' : ''} ${emojiOnly ? 'emoji' : ''}">${OS.esc(msg.text)}</div>`;
         });
@@ -223,18 +231,65 @@
               e.stopPropagation();
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
             });
-            sendBtn.addEventListener('click', send);
+            sendBtn.addEventListener('click', () => send());
             bar.querySelector('.msg-plus').addEventListener('click', (e) => {
               OS.UI.menu(e.currentTarget, [
+                { label: 'Disegno', icon: 'compose', onTap: () => openDrawing() },
                 { label: 'Foto', icon: 'photo', onTap: () => { ta.value = '📷 Foto'; send(); } },
                 { label: 'Posizione', icon: 'location-outline', onTap: () => { ta.value = '📍 Sono qui: Roma, Piazza Navona'; send(); } },
                 { label: 'Adesivi', icon: 'star', onTap: () => { ta.value = '✨'; send(); } },
               ], { preview: false });
             });
-            function send() {
-              const text = ta.value.trim();
+            /** iOS 27: quick sketches from the "+" menu */
+            function openDrawing() {
+              const COLORS = ['#000000', '#ff3b30', '#ff9500', '#34c759', '#0a84ff', '#af52de', '#ffffff'];
+              let color = OS.isDark() ? '#ffffff' : '#000000';
+              let cv = null;
+              let dirty = false;
+              OS.UI.sheet(root, {
+                title: 'Disegno',
+                left: { icon: 'xmark', label: 'Annulla' },
+                right: {
+                  icon: 'arrow-up', label: 'Invia', primary: true,
+                  onTap(api) { if (dirty) send(cv.toDataURL('image/png')); api.close(); },
+                },
+                render(body) {
+                  body.innerHTML = `<div class="draw-wrap"><canvas class="draw-canvas"></canvas></div>
+                    <div class="draw-tools">${COLORS.map((c) => `<button class="draw-col ${c === color ? 'on' : ''}" data-col="${c}" style="background:${c}"></button>`).join('')}<button class="draw-clear" aria-label="Cancella">${OS.sym('trash', { size: 20 })}</button></div>`;
+                  cv = body.querySelector('canvas');
+                  requestAnimationFrame(() => {
+                    const r = cv.getBoundingClientRect();
+                    cv.width = Math.round(r.width * 2);
+                    cv.height = Math.round(r.height * 2);
+                  });
+                  const ctx = cv.getContext('2d');
+                  let last = null;
+                  const pos = (e) => { const r = OS.rectOf(cv); const p = OS.point(e); return { x: (p.x - r.x) / r.width * cv.width, y: (p.y - r.y) / r.height * cv.height }; };
+                  cv.addEventListener('pointerdown', (e) => { e.stopPropagation(); cv.setPointerCapture(e.pointerId); last = pos(e); ctx.fillStyle = color; ctx.beginPath(); ctx.arc(last.x, last.y, 4, 0, Math.PI * 2); ctx.fill(); dirty = true; });
+                  cv.addEventListener('pointermove', (e) => {
+                    if (!last) return;
+                    const p = pos(e);
+                    ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+                    last = p;
+                  });
+                  const up = () => { last = null; };
+                  cv.addEventListener('pointerup', up);
+                  cv.addEventListener('pointercancel', up);
+                  body.addEventListener('click', (e) => {
+                    const c = e.target.closest('[data-col]');
+                    if (c) { color = c.dataset.col; body.querySelectorAll('.draw-col').forEach((x) => x.classList.toggle('on', x === c)); }
+                    if (e.target.closest('.draw-clear')) { ctx.clearRect(0, 0, cv.width, cv.height); dirty = false; }
+                  });
+                },
+              });
+            }
+
+            function send(img) {
+              if (typeof img !== 'string') img = null;
+              const text = img ? 'Disegno' : ta.value.trim();
               if (!text) return;
-              chat.messages.push({ from: 'me', text, time: Date.now() });
+              chat.messages.push(img ? { from: 'me', text: '', img, time: Date.now() } : { from: 'me', text, time: Date.now() });
               ta.value = '';
               sync();
               Store.save();
@@ -293,4 +348,20 @@
     }, 75000);
   });
   OS.MessagesStore = Store;
+
+  /** used by Siri: "scrivi a Giulia che arrivo tardi" */
+  OS.Messages = {
+    sendTo(name, text) {
+      let chat = Object.values(Store.chats).find((c) => c.name === name);
+      if (!chat) {
+        const id = 'c' + Date.now();
+        chat = Store.chats[id] = { id, name, unread: 0, messages: [] };
+      }
+      chat.messages.push({ from: 'me', text, time: Date.now() });
+      Store.save();
+      OS.sound('sent');
+      setTimeout(() => deliver(chat.id, replyFor(chat, text)), 2500 + Math.random() * 2000);
+      return chat.id;
+    },
+  };
 })();

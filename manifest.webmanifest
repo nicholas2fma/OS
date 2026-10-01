@@ -1,7 +1,7 @@
 {
-  "name": "iOS 26 Web",
-  "short_name": "iOS 26",
-  "description": "Ricreazione web di un iPhone con interfaccia Liquid Glass.",
+  "name": "iOS 27 Web",
+  "short_name": "iOS 27",
+  "description": "Ricreazione web di un iPhone con interfaccia Liquid Glass e Siri.",
   "lang": "it",
   "start_url": "./",
   "scope": "./",

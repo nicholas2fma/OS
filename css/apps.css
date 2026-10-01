@@ -474,11 +474,63 @@
 /* ---------------- Camera ---------------- */
 
 .cam-app { position: absolute; inset: 0; background: #000; color: #fff; }
-.cam-top { position: absolute; top: 52px; left: 0; right: 0; height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; }
-.cam-ic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .12); }
+.cam-top { position: absolute; top: 52px; left: 0; right: 0; height: 44px; display: flex; justify-content: space-around; align-items: center; padding: 0 40px; z-index: 3; }
+.cam-ic { min-width: 36px; height: 36px; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 9px; background: rgba(255, 255, 255, .12); font-size: 12px; font-weight: 700; }
 .cam-ic.on { color: #ffd60a; }
 .cam-pill { width: 44px; height: 26px; border-radius: 13px; display: grid; place-items: center; }
-.cam-view { position: absolute; top: 104px; left: 0; right: 0; aspect-ratio: 3 / 4; overflow: hidden; background: #111; }
+.cam-view { position: absolute; top: 104px; left: 0; right: 0; aspect-ratio: 3 / 4; overflow: hidden; background: #111; transition: aspect-ratio .3s; }
+.cam-grid { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .2s;
+  background:
+    linear-gradient(90deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% - .5px) calc(33.33% + .5px), transparent calc(33.33% + .5px) calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% - .5px) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
+    linear-gradient(180deg, transparent calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% - .5px) calc(33.33% + .5px), transparent calc(33.33% + .5px) calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% - .5px) calc(66.66% + .5px), transparent calc(66.66% + .5px)); }
+.cam-view.show-grid .cam-grid { opacity: 1; }
+.cam-count { position: absolute; inset: 0; display: grid; place-items: center; font-size: 120px; font-weight: 200; color: #fff; text-shadow: 0 4px 30px rgba(0, 0, 0, .4); opacity: 0; pointer-events: none; }
+.cam-count.on { opacity: 1; }
+.cam-siri-hint { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); display: none; align-items: center; gap: 8px; white-space: nowrap; padding: 8px 14px; border-radius: 18px; background: rgba(0, 0, 0, .5); font-size: 13px; font-weight: 600; }
+.cam-app.siri-mode .cam-siri-hint { display: flex; }
+.cam-app.siri-mode .cam-view { box-shadow: inset 0 0 0 2px rgba(191, 90, 242, .7), inset 0 0 40px rgba(94, 92, 230, .45); }
+.cam-siri-card {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4;
+  padding: 14px; border-radius: 26px; color: #fff;
+  background: rgba(16, 16, 22, .78); -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .45), inset 0 1px 1px rgba(255, 255, 255, .2);
+  transform: translateY(120%); opacity: 0; transition: transform .5s var(--ease-bounce), opacity .25s;
+}
+.cam-siri-card.on { transform: none; opacity: 1; }
+.csc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.csc-top b { font-size: 15px; }
+.csc-top button { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .14); }
+.csc-body { display: flex; gap: 12px; align-items: center; }
+.csc-img { width: 64px; height: 64px; border-radius: 12px; background-size: cover; background-position: center; flex: none; }
+.csc-title { font-size: 17px; font-weight: 600; line-height: 1.25; }
+.csc-colors { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; font-size: 12px; opacity: .85; }
+.csc-colors span { display: inline-flex; align-items: center; gap: 4px; }
+.csc-colors i { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .4); }
+.csc-meta { font-size: 12px; opacity: .6; margin-top: 4px; }
+.csc-actions { display: flex; gap: 8px; margin-top: 12px; }
+.csc-actions button { flex: 1; height: 36px; border-radius: 18px; background: rgba(255, 255, 255, .14); font-size: 14px; font-weight: 600; }
+.csc-note { font-size: 11px; opacity: .45; text-align: center; margin-top: 8px; }
+.cam-panel {
+  position: absolute; left: 10px; right: 10px; bottom: 218px; z-index: 5;
+  border-radius: 30px; padding: 14px; color: #fff;
+  transform: translateY(20px) scale(.96); opacity: 0; pointer-events: none;
+  transition: transform .45s var(--ease-bounce), opacity .2s;
+}
+.cam-panel.open { transform: none; opacity: 1; pointer-events: auto; }
+.cam-panel > * { position: relative; z-index: 2; }
+.cp-head { display: flex; justify-content: space-between; align-items: center; margin: 0 4px 10px; font-size: 15px; }
+.cp-head button { color: #ffd60a; font-weight: 600; font-size: 15px; }
+.cp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.cp-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 2px 8px; border-radius: 18px; background: rgba(255, 255, 255, .08); }
+.cp-tile.pinned { background: rgba(255, 214, 10, .18); }
+.cp-label { font-size: 11px; opacity: .75; }
+.cp-val { font-size: 12px; font-weight: 700; color: #ffd60a; white-space: nowrap; }
+.cp-pin { position: absolute; top: 4px; right: 4px; color: #ffd60a; }
+.cam-modes { position: relative; }
+.cam-dots { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; display: grid; grid-template-columns: repeat(3, 4px); grid-template-rows: repeat(2, 4px); gap: 4px; place-content: center; background: #1c1c1e; }
+.cam-dots i { width: 4px; height: 4px; border-radius: 50%; background: #fff; }
+.cam-dots.on { background: #ffd60a; }
+.cam-dots.on i { background: #000; }
 .cam-view video, .cam-view canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cam-view video { display: none; transform-origin: center; transition: transform .3s; }
 .cam-flash { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
@@ -502,6 +554,7 @@
 .cam-shutter i { display: block; width: 100%; height: 100%; border-radius: 50%; background: #fff; transition: transform .15s, background-color .2s, border-radius .25s; }
 .cam-shutter:active i { transform: scale(.88); }
 .cam-shutter.video i { background: #ff3b30; }
+.cam-shutter.siri i { background: conic-gradient(from var(--siri-a), #ff375f, #ff9f0a, #ffd60a, #64d2ff, #5e5ce6, #bf5af2, #ff375f); animation: siri-spin 3s linear infinite; }
 .cam-flip { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
 .cam-flip svg { position: relative; z-index: 2; }
 
@@ -790,9 +843,10 @@
   transition: height .5s var(--ease-spring);
   display: flex;
   flex-direction: column;
-  --glass-bg: rgba(250, 250, 252, .78);
+  --g-clear: rgba(250, 250, 252, .7);
+  --g-tint: rgba(250, 250, 252, .96);
 }
-#screen.dark .mp-sheet { --glass-bg: rgba(30, 30, 34, .78); }
+#screen.dark .mp-sheet { --g-clear: rgba(30, 30, 34, .7); --g-tint: rgba(30, 30, 34, .96); }
 .mp-sheet.tall { height: calc(100% - 66px); }
 .mp-sheet > * { position: relative; z-index: 2; }
 .mp-search { display: flex; align-items: center; gap: 8px; height: 46px; border-radius: 23px; background: var(--fill3); padding: 0 14px; margin: 8px 0 12px; color: var(--label2); flex: none; }
@@ -831,3 +885,83 @@
 .cp-info { margin-top: 34px; text-align: center; font-size: 17px; line-height: 1.6; opacity: .9; }
 .cp-perm { margin-top: 22px; height: 40px; font-size: 15px; background: rgba(255, 255, 255, .14); color: #fff; }
 .cp-hint { margin-top: 10px; font-size: 13px; opacity: .5; }
+
+/* ---------------- Settings › Aspetto › Liquid Glass (iOS 27) ---------------- */
+
+.lg-preview {
+  position: relative;
+  margin: 0 16px 22px;
+  height: 236px;
+  border-radius: 28px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+}
+.lgp-notif { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 20px; }
+.lgp-notif > * { position: relative; z-index: 2; }
+.lgp-notif b { display: block; font-size: 14px; }
+.lgp-notif span { font-size: 13px; opacity: .85; }
+.lgp-row { display: flex; justify-content: center; gap: 14px; }
+.lgp-round { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; }
+.lgp-round svg { position: relative; z-index: 2; }
+.lgp-dock { margin-top: auto; height: 70px; border-radius: 28px; display: flex; justify-content: space-around; align-items: center; }
+.lgp-dock .app-icon { position: relative; z-index: 2; }
+.lg-slider-row { gap: 10px; }
+.lg-slider-row > span { font-size: 13px; color: var(--label2); }
+
+/* ---------------- Siri app (iOS 27) ---------------- */
+
+.sr-app { position: absolute; inset: 0; background: #07070c; color: #fff; overflow: hidden; }
+.sr-glow {
+  position: absolute;
+  left: -30%;
+  right: -30%;
+  bottom: -170px;
+  height: 340px;
+  background:
+    radial-gradient(closest-side at 30% 50%, rgba(255, 55, 95, .55), transparent),
+    radial-gradient(closest-side at 50% 60%, rgba(94, 92, 230, .65), transparent),
+    radial-gradient(closest-side at 72% 45%, rgba(100, 210, 255, .5), transparent);
+  filter: blur(30px);
+  animation: sr-breathe 6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes sr-breathe { to { transform: translateY(-30px) scale(1.08); opacity: .8; } }
+.sr-head { position: absolute; top: 0; left: 0; right: 0; padding: 58px 20px 0; display: flex; justify-content: space-between; align-items: center; z-index: 2; --glass-bg: rgba(255, 255, 255, .12); }
+.sr-head h1 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
+.sr-head .gbtn { color: #fff; }
+.sr-thread { position: absolute; top: 112px; bottom: 104px; left: 0; right: 0; padding: 10px 18px 30px; display: flex; flex-direction: column; gap: 12px; }
+.sr-msg { max-width: 86%; font-size: 17px; line-height: 1.4; white-space: pre-wrap; animation: bubble-in .3s var(--ease-bounce); }
+.sr-msg.me { align-self: flex-end; background: rgba(255, 255, 255, .13); padding: 9px 14px; border-radius: 20px; }
+.sr-msg.siri { align-self: flex-start; }
+.sr-msg.thinking { display: flex; align-items: center; gap: 10px; opacity: .75; }
+.sr-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-top: 26px; }
+.sr-empty b { font-size: 24px; margin-top: 8px; }
+.sr-empty p { margin: 0; font-size: 14px; opacity: .6; }
+.sr-sugg { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 18px; --glass-bg: rgba(255, 255, 255, .08); }
+.sr-sugg button { padding: 12px 16px; border-radius: 18px; text-align: left; font-size: 15px; color: #fff; }
+.sr-bar { position: absolute; left: 12px; right: 12px; bottom: 30px; z-index: 2; --glass-bg: rgba(255, 255, 255, .1); }
+.sr-field { display: flex; align-items: center; gap: 10px; height: 52px; border-radius: 26px; padding: 0 8px 0 14px; }
+.sr-field > * { position: relative; z-index: 2; }
+.sr-field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; color: #fff; }
+.sr-field input::placeholder { color: rgba(255, 255, 255, .5); }
+.sr-mic { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(255, 255, 255, .12); }
+
+/* Messages drawings (iOS 27) */
+.bubble.img { padding: 4px; background: #e9e9eb !important; }
+#screen.dark .bubble.img { background: #262629 !important; }
+.bubble.img img { display: block; width: 180px; height: auto; border-radius: 16px; }
+.draw-wrap { margin: 4px 16px 14px; border-radius: 22px; background: var(--cell); box-shadow: inset 0 0 0 .5px var(--sep); overflow: hidden; }
+.draw-canvas { display: block; width: 100%; height: 300px; touch-action: none; cursor: crosshair; }
+.draw-tools { display: flex; align-items: center; gap: 10px; padding: 0 20px 6px; }
+.draw-col { width: 30px; height: 30px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); transition: transform .2s var(--ease-bounce); }
+.draw-col.on { transform: scale(1.18); box-shadow: 0 0 0 2px var(--cell), 0 0 0 4px var(--accent); }
+.draw-clear { margin-left: auto; color: var(--red); }
+.cam-modes::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 76px; background: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 50%); pointer-events: none; }
+.cam-dots { z-index: 2; }

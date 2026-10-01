@@ -7,8 +7,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#000000">
-  <meta name="description" content="Ricreazione web di un sistema operativo per smartphone in stile iOS 26, con materiale Liquid Glass.">
-  <title>iOS 26 Web</title>
+  <meta name="description" content="Ricreazione web di un sistema operativo per smartphone in stile iOS 27, con materiale Liquid Glass e Siri.">
+  <title>iOS 27 Web</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -21,16 +21,18 @@
 <body>
   <main id="stage">
     <aside id="help" aria-label="Comandi">
-      <h2>iOS 26 Web</h2>
+      <h2>iOS 27 Web</h2>
       <p class="help-sub">Trascina con il mouse come fosse un dito.</p>
       <dl>
         <dt>Sblocca</dt><dd>Scorri in alto sulla schermata di blocco · <kbd>Invio</kbd></dd>
         <dt>Home</dt><dd>Scorri in alto dalla barra in basso · clic sulla barra · <kbd>Esc</kbd></dd>
         <dt>Multitasking</dt><dd>Scorri in alto e fermati · <kbd>M</kbd></dd>
-        <dt>Centro di Controllo</dt><dd>Scorri giù dall'angolo in alto a destra · <kbd>C</kbd></dd>
+        <dt>Cerca o chiedi</dt><dd>Scorri giù dal centro in alto o sulla Home · <kbd>/</kbd></dd>
+        <dt>Siri</dt><dd>Tieni premuto il tasto laterale · <kbd>S</kbd></dd>
         <dt>Notifiche</dt><dd>Scorri giù dall'alto a sinistra · <kbd>N</kbd></dd>
-        <dt>Cerca</dt><dd>Scorri giù sulla Home · <kbd>/</kbd></dd>
-        <dt>Modifica Home</dt><dd>Tieni premuto su un'icona</dd>
+        <dt>Centro di Controllo</dt><dd>Scorri giù dall'alto a destra · <kbd>C</kbd></dd>
+        <dt>Modifica Home e widget</dt><dd>Tieni premuto su un'icona · maniglia per ridimensionare</dd>
+        <dt>Personalizza blocco</dt><dd>Tieni premuto sulla schermata di blocco</dd>
         <dt>Blocca</dt><dd>Tasto laterale · <kbd>L</kbd></dd>
       </dl>
     </aside>
@@ -73,6 +75,7 @@
   <script src="js/core/ui.js"></script>
   <script src="js/core/statusbar.js"></script>
   <script src="js/core/island.js"></script>
+  <script src="js/core/siri.js"></script>
   <script src="js/core/notifications.js"></script>
   <script src="js/core/appmanager.js"></script>
   <script src="js/core/widgets.js"></script>
@@ -97,6 +100,7 @@
   <script src="js/apps/safari.js"></script>
   <script src="js/apps/maps.js"></script>
   <script src="js/apps/compass.js"></script>
+  <script src="js/apps/siri.js"></script>
 
   <script src="js/main.js"></script>
 </body>

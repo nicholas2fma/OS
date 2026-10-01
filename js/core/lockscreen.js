@@ -5,13 +5,24 @@
 (function () {
   'use strict';
 
-  let lock, timeEl, dateEl, iconEl, widgetsEl, notifsEl, mediaEl, hintEl, torchBtn, camBtn;
+  let lock, timeEl, dateEl, iconEl, widgetsEl, notifsEl, mediaEl, hintEl, torchBtn, camBtn, volEl;
   let faceTimer = null;
   let faceOk = false;
 
   function tick() {
     timeEl.textContent = OS.fmt.time();
     dateEl.textContent = OS.fmt.dateLong();
+    const mini = widgetsEl && widgetsEl.querySelector('.lock-clock-mini');
+    if (mini) mini.textContent = OS.fmt.time();
+  }
+
+  /** iOS 27 Lock Screen options: compact clock, volume slider */
+  function layout() {
+    const compact = !!OS.settings.lockCompactClock;
+    lock.classList.toggle('compact', compact);
+    volEl.classList.toggle('hidden', !OS.settings.lockVolume);
+    volEl.querySelector('.lv-fill').style.width = (OS.settings.volume * 100) + '%';
+    widgets();
   }
 
   function widgets() {
@@ -20,7 +31,7 @@
     const b = OS.state.battery;
     const c = 2 * Math.PI * 25;
     const next = OS.ClockService && OS.ClockService.nextAlarm();
-    widgetsEl.innerHTML = `
+    widgetsEl.innerHTML = (OS.settings.lockCompactClock ? `<div class="lock-clock-mini glass-text tnum">${OS.fmt.time()}</div>` : '') + `
       <div class="lock-widget glass">${d ? S.icon(d.current.code, d.current.isDay) : OS.sym('sun')}<span class="big">${d ? Math.round(d.current.temp) + '°' : '--'}</span></div>
       <div class="lock-widget glass ring"><svg class="ring-svg" viewBox="0 0 58 58"><circle cx="29" cy="29" r="25" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="4"/><circle cx="29" cy="29" r="25" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * b).toFixed(1)} ${c.toFixed(1)}"/></svg>${OS.sym(OS.state.charging ? 'bolt-fill' : 'battery', { size: 16 })}<span>${Math.round(b * 100)}</span></div>
       <div class="lock-widget glass">${next ? OS.sym('alarm-fill', { size: 18 }) + `<span>${OS.esc(next)}</span>` : `<span style="font-size:11px;opacity:.8">${OS.esc(OS.fmt.dayShort())}</span><span class="big">${new Date().getDate()}</span>`}</div>`;
@@ -42,11 +53,37 @@
     if (!M.song || !L) { mediaEl.classList.add('hidden'); return; }
     mediaEl.classList.remove('hidden');
     const s = M.song;
-    mediaEl.innerHTML = `<div class="lm-top"><div class="lm-art">${L.cover(s.album, 46)}</div>
+    mediaEl.classList.remove('swiped');
+    mediaEl.innerHTML = `<button class="lm-clear" data-m="clear">Cancella</button><div class="lm-inner"><div class="lm-top"><div class="lm-art">${L.cover(s.album, 46)}</div>
       <div style="min-width:0;flex:1"><div class="lm-title">${OS.esc(s.title)}</div><div class="lm-artist">${OS.esc(s.artist)}</div></div>
       <div class="isl-bars ${M.playing ? '' : 'paused'}" style="--c:#fff"><i></i><i></i><i></i><i></i></div></div>
       <div class="lm-progress"><i style="width:${(M.position() / s.duration) * 100}%"></i></div>
-      <div class="lm-ctrl"><button data-m="prev">${OS.sym('backward', { size: 26 })}</button><button data-m="toggle">${OS.sym(M.playing ? 'pause' : 'play', { size: 30 })}</button><button data-m="next">${OS.sym('forward', { size: 26 })}</button></div>`;
+      <div class="lm-ctrl"><button data-m="prev">${OS.sym('backward', { size: 26 })}</button><button data-m="toggle">${OS.sym(M.playing ? 'pause' : 'play', { size: 30 })}</button><button data-m="next">${OS.sym('forward', { size: 26 })}</button></div></div>`;
+  }
+
+  function customize() {
+    const overlay = document.getElementById('overlay');
+    overlay.classList.add('active');
+    OS.UI.sheet(overlay, {
+      title: 'Personalizza',
+      left: { icon: 'xmark', label: 'Chiudi' },
+      render(body) {
+        body.appendChild(OS.UI.section([
+          { icon: 'clock', color: 'var(--indigo)', title: 'Orologio compatto', sub: 'Lascia più spazio allo sfondo', toggle: { on: !!OS.settings.lockCompactClock, onChange: (v) => OS.set('lockCompactClock', v) } },
+          { icon: 'speaker', color: 'var(--pink)', title: 'Cursore del volume', toggle: { on: !!OS.settings.lockVolume, onChange: (v) => OS.set('lockVolume', v) } },
+        ], 'Schermata di blocco'));
+        const walls = OS.el(`<div class="lock-walls scroll-x">${OS.Wallpapers.list.map((w) => `<button data-w="${w.id}" class="${w.id === OS.settings.wallpaper ? 'on' : ''}" style="background-image:${OS.Wallpapers.url(w.id)}"></button>`).join('')}</div>`);
+        walls.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-w]');
+          if (!b) return;
+          OS.set('wallpaper', b.dataset.w);
+          walls.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+        });
+        body.appendChild(OS.el('<div class="section-head" style="padding:0 32px 8px">Sfondo</div>'));
+        body.appendChild(walls);
+      },
+      onClose() { setTimeout(() => { if (!overlay.children.length) overlay.classList.remove('active'); }, 520); },
+    });
   }
 
   function faceID() {
@@ -130,22 +167,26 @@
 
   function installGestures() {
     let g = null;
+    let pressT = null;
     lock.addEventListener('pointerdown', (e) => {
       if (!OS.state.locked || e.button > 0) return;
       if (e.target.closest('button, .notif, .lock-media')) return;
       const p = OS.point(e);
       if (p.y < 44) return; // top edge belongs to Control/Notification Center
       g = { y: p.y, x: p.x, t: performance.now(), id: e.pointerId, moved: false };
+      clearTimeout(pressT);
+      pressT = setTimeout(() => { if (g && !g.moved) { g = null; OS.haptic(15); customize(); } }, 650);
     });
     window.addEventListener('pointermove', (e) => {
       if (!g || e.pointerId !== g.id) return;
       const dy = OS.point(e).y - g.y;
-      if (Math.abs(dy) > 6) g.moved = true;
+      if (Math.abs(dy) > 6) { g.moved = true; clearTimeout(pressT); }
       if (!g.moved) return;
       setLockY(Math.min(0, dy));
       if (OS.Apps.mode !== 'app') OS.Home.setProgress(1 - OS.clamp(-dy / (OS.state.height * .4), 0, 1));
     });
     window.addEventListener('pointerup', (e) => {
+      clearTimeout(pressT);
       if (!g || e.pointerId !== g.id) return;
       const dy = OS.point(e).y - g.y;
       const v = dy / Math.max(1, performance.now() - g.t);
@@ -159,10 +200,35 @@
 
     torchBtn.addEventListener('click', () => { setTorch(!OS.state.torch); OS.haptic(20); });
     camBtn.addEventListener('click', () => { OS.haptic(20); unlock(() => OS.Apps.open('camera')); });
+    let ms = null;
+    mediaEl.addEventListener('pointerdown', (e) => { if (!e.target.closest('button')) ms = { x: OS.point(e).x, open: mediaEl.classList.contains('swiped') }; });
+    mediaEl.addEventListener('pointermove', (e) => {
+      if (!ms) return;
+      const dx = OS.point(e).x - ms.x + (ms.open ? -96 : 0);
+      const inner = mediaEl.querySelector('.lm-inner');
+      if (inner) { inner.style.transition = 'none'; inner.style.transform = `translateX(${OS.clamp(dx, -130, 0)}px)`; }
+    });
+    const msEnd = (e) => {
+      if (!ms) return;
+      const dx = OS.point(e).x - ms.x + (ms.open ? -96 : 0);
+      ms = null;
+      const inner = mediaEl.querySelector('.lm-inner');
+      if (inner) { inner.style.transition = ''; inner.style.transform = ''; }
+      mediaEl.classList.toggle('swiped', dx < -50);
+    };
+    mediaEl.addEventListener('pointerup', msEnd);
+    mediaEl.addEventListener('pointercancel', msEnd);
+    // volume slider
+    let vd = null;
+    volEl.addEventListener('pointerdown', (e) => { e.stopPropagation(); vd = OS.rectOf(volEl.querySelector('.lv-track')); setVol(e); });
+    const setVol = (e) => { const v = OS.clamp((OS.point(e).x - vd.x) / vd.width, 0, 1); OS.set('volume', Math.round(v * 100) / 100); volEl.querySelector('.lv-fill').style.width = v * 100 + '%'; };
+    window.addEventListener('pointermove', (e) => { if (vd) setVol(e); });
+    window.addEventListener('pointerup', () => { vd = null; });
     mediaEl.addEventListener('click', (e) => {
       const b = e.target.closest('[data-m]');
       if (!b) return;
       const M = OS.Audio.Music, L = OS.MusicLibrary;
+      if (b.dataset.m === 'clear') { M.clear(); return; }
       if (b.dataset.m === 'toggle') M.toggle();
       if (b.dataset.m === 'next') L.next();
       if (b.dataset.m === 'prev') L.prev();
@@ -185,6 +251,7 @@
       <div class="lock-date"></div>
       <div class="lock-time glass-text"></div>
       <div class="lock-widgets"></div>
+      <div class="lock-volume glass hidden">${OS.sym('speaker-slash', { size: 15 })}<div class="lv-track"><i class="lv-fill"></i></div>${OS.sym('speaker', { size: 17 })}</div>
       <div class="lock-bottom"><div class="lock-media glass hidden"></div><div class="lock-notifs"></div></div>
       <button class="lock-quick left glass" aria-label="Torcia">${OS.sym('flashlight', { size: 22 })}</button>
       <button class="lock-quick right glass" aria-label="Fotocamera">${OS.sym('camera-fill', { size: 22 })}</button>
@@ -197,14 +264,21 @@
     mediaEl = lock.querySelector('.lock-media');
     hintEl = lock.querySelector('.lock-hint');
     torchBtn = lock.querySelector('.lock-quick.left');
+    volEl = lock.querySelector('.lock-volume');
     camBtn = lock.querySelector('.lock-quick.right');
 
     OS.Glass.attach(torchBtn, { bezel: 14, strength: 20 });
     OS.Glass.attach(camBtn, { bezel: 14, strength: 20 });
 
-    tick(); widgets(); notifs(); media(); faceID();
+    tick(); layout(); notifs(); media(); faceID();
     setInterval(() => { if (OS.state.locked) tick(); }, 1000);
-    setInterval(() => { if (OS.state.locked && OS.Audio.Music.playing) media(); }, 1000);
+    // only the progress bar moves every second: a full re-render would undo a swipe on Now Playing
+    setInterval(() => {
+      const M = OS.Audio.Music;
+      if (!OS.state.locked || !M.playing || !M.song) return;
+      const bar = mediaEl.querySelector('.lm-progress i');
+      if (bar) bar.style.width = (M.position() / M.song.duration) * 100 + '%';
+    }, 1000);
     installGestures();
 
     OS.on('notifications', () => { if (OS.state.locked) notifs(); });
@@ -214,6 +288,7 @@
     OS.on('music:change', media);
     OS.on('music:state', media);
     OS.on('setting:use24h', tick);
+    OS.on('settings', (k) => { if (k === 'lockCompactClock' || k === 'lockVolume') layout(); if (k === 'volume' && !OS.state.ccOpen) volEl.querySelector('.lv-fill').style.width = (OS.settings.volume * 100) + '%'; });
     OS.screenEl.querySelector('#screen-off').addEventListener('click', wake);
   }
 

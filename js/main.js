@@ -9,7 +9,7 @@
     const dark = OS.isDark();
     sc.classList.toggle('dark', dark);
     sc.classList.toggle('light', !dark);
-    sc.classList.toggle('glass-tinted', OS.settings.glass === 'tinted');
+    sc.style.setProperty('--gt', String(OS.clamp(+OS.settings.glassLevel || 0, 0, 1)));
     document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
     OS.chrome();
     OS.emit('theme', dark);
@@ -25,6 +25,7 @@
     OS.Wallpapers.apply();
     OS.StatusBar.init();
     OS.Island.init();
+    OS.Siri.init();
     OS.Notifications.init();
     OS.Apps.init();
     OS.Widgets.init();
@@ -35,7 +36,7 @@
     OS.Gestures.init();
 
     OS.on('setting:appearance', applyTheme);
-    OS.on('setting:glass', applyTheme);
+    OS.on('setting:glassLevel', applyTheme);
     OS.on('setting:wallpaper', () => { OS.Wallpapers.apply(); OS.chrome(); });
     if (window.matchMedia) {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -56,7 +57,7 @@
       setTimeout(() => OS.notify({
         app: 'messages',
         title: 'Benvenuto',
-        body: 'Scorri verso l\'alto per sbloccare. Dall\'angolo in alto a destra apri il Centro di Controllo.',
+        body: 'Scorri verso l\'alto per sbloccare. Tieni premuto il tasto laterale per Siri.',
         data: { chat: 'benvenuto' },
         silent: true,
       }), 1200);

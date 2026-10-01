@@ -116,6 +116,10 @@
       bg: 'linear-gradient(135deg,#92d77b 0%,#d9f0c4 100%)', tint: '#30d158',
       glyph: () => `<path d="M56 0h44v50C84 42 66 26 56 0z" fill="#79cdff"/><path d="M-5 76 105 30" stroke="#fff" stroke-width="11"/><path d="M27 106 63-6" stroke="#ffd60a" stroke-width="9"/><path d="M27 106 63-6" stroke="#eaa500" stroke-width="1" stroke-dasharray="4 4"/><circle cx="58" cy="60" r="12" fill="#fff"/><path d="m58 51.5 7.5 15.5-7.5-3.6-7.5 3.6z" fill="#007aff"/>`,
     },
+    siri: {
+      bg: 'linear-gradient(180deg,#1d1b33 0%,#05050a 100%)', tint: '#bf5af2',
+      glyph: () => `<circle cx="50" cy="50" r="27" fill="#5e5ce6"/><circle cx="42" cy="44" r="20" fill="#ff375f" opacity=".8" style="mix-blend-mode:screen"/><circle cx="60" cy="46" r="19" fill="#ff9f0a" opacity=".65" style="mix-blend-mode:screen"/><circle cx="52" cy="60" r="18" fill="#64d2ff" opacity=".7" style="mix-blend-mode:screen"/><circle cx="50" cy="50" r="27" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.6"/><ellipse cx="43" cy="37" rx="10" ry="4.5" fill="#fff" opacity=".4"/>`,
+    },
     compass: {
       bg: 'linear-gradient(180deg,#2a2a2c 0%,#000 100%)', tint: '#ff453a',
       glyph: () => `${ticks(72, 34, 39, 'rgba(255,255,255,.85)', .8, 6, 31)}<path d="M50 20 56 50H44z" fill="#ff3b30"/><path d="M50 80 56 50H44z" ${P}/><circle cx="50" cy="50" r="3" fill="#1c1c1e"/>`,

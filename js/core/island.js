@@ -11,6 +11,7 @@
   let expanded = false;
   let flashTimer = null;
   let flashing = null;
+  let suppressUntil = 0;
 
   function sorted() {
     return Array.from(activities.values()).sort((a, b) => (b.priority || 0) - (a.priority || 0));
@@ -122,6 +123,7 @@
     isl.parentElement.appendChild(bubble);
 
     isl.addEventListener('click', (e) => {
+      if (Date.now() < suppressUntil) return;
       const top = sorted()[0];
       if (!top || flashing) return;
       if (expanded) {
@@ -152,5 +154,6 @@
     layout();
   }
 
-  OS.Island = { init, set, update, clear, flash, collapse, get expanded() { return expanded; }, has: (id) => activities.has(id) };
+  OS.Island = { init, set, update, clear, flash, collapse,
+    suppressNextClick() { suppressUntil = Date.now() + 700; }, get expanded() { return expanded; }, has: (id) => activities.has(id) };
 })();

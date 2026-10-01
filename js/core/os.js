@@ -27,7 +27,7 @@
   const DEFAULTS = {
     appearance: 'auto',      // 'light' | 'dark' | 'auto'
     wallpaper: 'liquido',
-    glass: 'clear',          // 'clear' | 'tinted'
+    glassLevel: .25,         // iOS 27 Liquid Glass slider: 0 = trasparente … 1 = colorato
     refraction: true,
     iconStyle: 'default',    // 'default' | 'dark' | 'clear' | 'tinted'
     tintHue: 215,
@@ -46,12 +46,20 @@
     deviceName: 'iPhone',
     userName: 'Il tuo nome',
     lowPower: false,
+    siriAI: true,            // iOS 27: Siri in the Dynamic Island, "Cerca o chiedi", banners from the left
     hiddenApps: [],
   };
 
+  /** settings saved by the iOS 26 version used a two-state glass preset */
+  function migrate(saved) {
+    if (saved && saved.glass && saved.glassLevel == null) saved.glassLevel = saved.glass === 'tinted' ? .85 : .2;
+    if (saved) delete saved.glass;
+    return saved || {};
+  }
+
   const OS = {
-    version: '26.0',
-    settings: Object.assign({}, DEFAULTS, store.get('settings', {})),
+    version: '27.0',
+    settings: Object.assign({}, DEFAULTS, migrate(store.get('settings', {}))),
     defaults: DEFAULTS,
     state: {
       locked: true,

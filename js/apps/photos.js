@@ -335,7 +335,7 @@
             case 'del':
               OS.UI.alert({ title: 'Elimina foto', message: 'Questa foto verrà eliminata dalla libreria.', buttons: [{ label: 'Annulla' }, { label: 'Elimina', style: 'destructive', onTap: () => { Service.remove(p); list = list.filter((x) => x !== p); if (!list.length) close(); else { i = Math.min(i, list.length - 1); show(); } } }] });
               break;
-            case 'share': if (navigator.share) navigator.share({ title: 'Foto', text: 'Foto da iOS 26 Web' }).catch(() => {}); break;
+            case 'share': if (navigator.share) navigator.share({ title: 'Foto', text: 'Foto da iOS 27 Web' }).catch(() => {}); break;
             case 'info': OS.Island.flash({ left: OS.sym('info', { size: 18 }), right: `<span>${p.kind === 'camera' ? 'Fotocamera' : KIND_NAMES[p.kind]} · ${W}×${H}</span>`, width: 260 }); break;
             case 'more': OS.UI.menu(a, [{ label: 'Imposta come sfondo', icon: 'photo', onTap: () => { const id = 'custom'; OS.Island.flash({ left: OS.sym('photo', { size: 18 }), right: '<span>Usa Impostazioni › Sfondo</span>', width: 260 }); return id; } }, { label: 'Copia', icon: 'square-on-square' }], { preview: false }); break;
             default:

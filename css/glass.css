@@ -8,99 +8,117 @@
                  Chromium browsers (backdrop-filter: url(#…)).
    ========================================================================== */
 
-#screen {
+/*
+ * iOS 27: one continuous "Liquid Glass" level instead of two presets.
+ * --gt goes from 0 (ultra clear) to 1 (fully tinted) and is driven by
+ * Impostazioni › Aspetto › Liquid Glass. Each context only declares the two
+ * end points (--g-clear / --g-tint) and the base blur; .glass mixes them.
+ * Components may still force a colour with --glass-bg / --glass-filter.
+ */
+#screen,
+#screen .surface-system {
   /* over wallpaper (home, lock, control center) */
-  --glass-bg: rgba(255, 255, 255, .08);
-  --glass-filter: blur(10px) saturate(190%) brightness(1.08);
+  --g-clear: rgba(255, 255, 255, .07);
+  --g-tint: rgba(26, 26, 32, .58);
+  --g-blur: 9px;
+  --g-sat: 190%;
+  --g-bright: 1.07;
+  /* iOS 27: darkened edges + brighter specular highlights for depth */
   --glass-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .32),
-    inset 0 -1px 1px rgba(255, 255, 255, .06),
-    inset 0 0 18px rgba(255, 255, 255, .06),
+    inset 0 1px 1px rgba(255, 255, 255, .5),
+    inset 0 -1px 1px rgba(255, 255, 255, .12),
+    inset 0 0 14px rgba(0, 0, 0, .1),
+    0 0 0 .5px rgba(0, 0, 0, .3),
     0 10px 30px rgba(0, 0, 0, .16);
   --glass-rim: linear-gradient(135deg,
-    rgba(255, 255, 255, .85) 0%,
-    rgba(255, 255, 255, .18) 22%,
-    rgba(255, 255, 255, 0) 45%,
-    rgba(255, 255, 255, 0) 60%,
-    rgba(255, 255, 255, .22) 80%,
-    rgba(255, 255, 255, .6) 100%);
-  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .16), transparent 60%);
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, .28) 20%,
+    rgba(255, 255, 255, 0) 42%,
+    rgba(255, 255, 255, 0) 62%,
+    rgba(255, 255, 255, .3) 82%,
+    rgba(255, 255, 255, .8) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .18), transparent 60%);
   --glass-strong-bg: rgba(255, 255, 255, .16);
 }
+#screen { --gt: .25; }
+#screen.light,
+#screen.light .surface-system { --g-tint: rgba(70, 70, 82, .46); }
 
 /* inside apps, light appearance */
 #screen.light .app-window,
 #screen.light .surface-light {
-  --glass-bg: rgba(255, 255, 255, .58);
-  --glass-filter: blur(12px) saturate(200%) brightness(1.04);
+  --g-clear: rgba(255, 255, 255, .5);
+  --g-tint: rgba(250, 250, 252, .93);
+  --g-blur: 10px;
+  --g-sat: 200%;
+  --g-bright: 1.04;
   --glass-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .9),
-    inset 0 -1px 1px rgba(255, 255, 255, .35),
-    0 0 0 .5px rgba(0, 0, 0, .06),
+    inset 0 1px 1px rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(255, 255, 255, .45),
+    inset 0 0 10px rgba(0, 0, 0, .04),
+    0 0 0 .5px rgba(0, 0, 0, .14),
     0 8px 28px rgba(0, 0, 0, .12);
   --glass-rim: linear-gradient(135deg,
     rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, .4) 30%,
+    rgba(255, 255, 255, .5) 30%,
     rgba(255, 255, 255, 0) 55%,
-    rgba(255, 255, 255, .5) 100%);
-  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .5), transparent 60%);
-  --glass-strong-bg: rgba(255, 255, 255, .78);
+    rgba(255, 255, 255, .7) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .55), transparent 60%);
+  --glass-strong-bg: rgba(255, 255, 255, .8);
 }
 
 /* inside apps, dark appearance */
 #screen.dark .app-window,
 #screen .surface-dark {
-  --glass-bg: rgba(44, 44, 48, .42);
-  --glass-filter: blur(12px) saturate(180%) brightness(1.1);
+  --g-clear: rgba(44, 44, 48, .36);
+  --g-tint: rgba(34, 34, 38, .92);
+  --g-blur: 10px;
+  --g-sat: 180%;
+  --g-bright: 1.1;
   --glass-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .22),
-    inset 0 -1px 1px rgba(255, 255, 255, .05),
-    0 0 0 .5px rgba(255, 255, 255, .06),
+    inset 0 1px 1px rgba(255, 255, 255, .3),
+    inset 0 -1px 1px rgba(255, 255, 255, .07),
+    inset 0 0 12px rgba(0, 0, 0, .25),
+    0 0 0 .5px rgba(0, 0, 0, .6),
     0 10px 30px rgba(0, 0, 0, .45);
   --glass-rim: linear-gradient(135deg,
-    rgba(255, 255, 255, .55) 0%,
-    rgba(255, 255, 255, .1) 28%,
+    rgba(255, 255, 255, .7) 0%,
+    rgba(255, 255, 255, .14) 28%,
     rgba(255, 255, 255, 0) 55%,
-    rgba(255, 255, 255, .25) 100%);
-  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .1), transparent 60%);
-  --glass-strong-bg: rgba(50, 50, 54, .72);
+    rgba(255, 255, 255, .35) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .12), transparent 60%);
+  --glass-strong-bg: rgba(50, 50, 54, .74);
 }
 
-/* Some apps are always dark (camera, calculator, clock, weather…) */
+/* Some apps are always dark (camera, calculator, weather…) */
 #screen .app-window.force-dark {
-  --glass-bg: rgba(60, 60, 66, .38);
-  --glass-filter: blur(12px) saturate(180%) brightness(1.12);
+  --g-clear: rgba(60, 60, 66, .32);
+  --g-tint: rgba(38, 38, 42, .9);
+  --g-blur: 10px;
+  --g-sat: 180%;
+  --g-bright: 1.12;
   --glass-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .25),
-    inset 0 -1px 1px rgba(255, 255, 255, .05),
+    inset 0 1px 1px rgba(255, 255, 255, .32),
+    inset 0 -1px 1px rgba(255, 255, 255, .07),
+    inset 0 0 12px rgba(0, 0, 0, .22),
+    0 0 0 .5px rgba(0, 0, 0, .5),
     0 10px 30px rgba(0, 0, 0, .35);
   --glass-rim: linear-gradient(135deg,
-    rgba(255, 255, 255, .6) 0%,
-    rgba(255, 255, 255, .1) 28%,
+    rgba(255, 255, 255, .75) 0%,
+    rgba(255, 255, 255, .14) 28%,
     rgba(255, 255, 255, 0) 55%,
-    rgba(255, 255, 255, .28) 100%);
-  --glass-strong-bg: rgba(58, 58, 62, .7);
+    rgba(255, 255, 255, .38) 100%);
+  --glass-strong-bg: rgba(58, 58, 62, .72);
 }
-
-/* "Colorato" (tinted) appearance: more frosted, more contrast */
-#screen.glass-tinted {
-  --glass-bg: rgba(30, 30, 36, .38);
-  --glass-filter: blur(22px) saturate(160%) brightness(.95);
-}
-#screen.glass-tinted.light {
-  --glass-bg: rgba(255, 255, 255, .3);
-  --glass-filter: blur(22px) saturate(170%) brightness(1.05);
-}
-#screen.glass-tinted.light .app-window { --glass-bg: rgba(250, 250, 252, .86); --glass-filter: blur(24px) saturate(180%); }
-#screen.glass-tinted.dark .app-window { --glass-bg: rgba(36, 36, 40, .84); --glass-filter: blur(24px) saturate(160%); }
-#screen.glass-tinted .app-window.force-dark { --glass-bg: rgba(40, 40, 44, .82); }
 
 :where(.glass) { position: relative; }
 
 .glass {
-  background: var(--glass-sheen), var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
+  --glass-mix: color-mix(in srgb, var(--g-clear), var(--g-tint) calc(var(--gt) * 100%));
+  --glass-blur: blur(calc(var(--g-blur) + 18px * var(--gt))) saturate(calc(var(--g-sat) - 40% * var(--gt))) brightness(var(--g-bright));
+  background: var(--glass-sheen), var(--glass-bg, var(--glass-mix));
+  -webkit-backdrop-filter: var(--glass-filter, var(--glass-blur));
+  backdrop-filter: var(--glass-filter, var(--glass-blur));
   box-shadow: var(--glass-shadow);
 }
 
@@ -139,7 +157,7 @@
   background: var(--glass-sheen), var(--glass-strong-bg);
 }
 
-/* Interactive lens: grows and brightens when pressed, like iOS 26 controls */
+/* Interactive lens: grows and brightens when pressed */
 .glass-press {
   transition: transform .35s var(--ease-bounce), filter .2s, background-color .2s;
 }
