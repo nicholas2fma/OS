@@ -1,0 +1,279 @@
+/* ==========================================================================
+   iOS 26 Web — base: reset, stage, device frame, design tokens
+   ========================================================================== */
+
+/* Inter (SIL OFL 1.1, see fonts/LICENSE-Inter.txt) — bundled so the project works offline */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(../fonts/Inter-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(../fonts/Inter-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(1200px 800px at 15% 10%, #1d2340 0%, transparent 60%),
+    radial-gradient(900px 700px at 90% 90%, #2a1638 0%, transparent 60%),
+    #0b0b10;
+  color: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, "Helvetica Neue", Arial, sans-serif;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select {
+  font: inherit;
+  color: inherit;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+img, svg { display: block; }
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .15);
+}
+
+/* ---------- Stage & help ---------- */
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+}
+
+#help {
+  width: 260px;
+  color: rgba(255, 255, 255, .78);
+  font-size: 13px;
+  line-height: 1.45;
+}
+#help h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -.02em; }
+#help .help-sub { margin: 0 0 18px; color: rgba(255, 255, 255, .5); }
+#help dl { margin: 0; display: grid; gap: 10px; }
+#help dt { font-weight: 600; color: #fff; }
+#help dd { margin: 2px 0 0; color: rgba(255, 255, 255, .6); }
+
+@media (max-width: 900px), (max-height: 560px) {
+  #help { display: none; }
+}
+
+/* ---------- Device frame ---------- */
+
+#device {
+  --bezel: 13px;
+  position: relative;
+  flex: none;
+  width: calc(var(--sw, 402px) + var(--bezel) * 2);
+  height: calc(var(--sh, 874px) + var(--bezel) * 2);
+  padding: var(--bezel);
+  border-radius: 74px;
+  background: #050506;
+  box-shadow:
+    0 0 0 2px #2c2c30,
+    0 0 0 4px #8c8c93,
+    0 0 0 5px #3a3a3f,
+    0 0 0 6px #18181b,
+    0 40px 100px rgba(0, 0, 0, .55),
+    0 10px 30px rgba(0, 0, 0, .4);
+  transform: scale(var(--scale, 1));
+  transform-origin: center center;
+}
+
+.hw {
+  position: absolute;
+  width: 5px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #4a4a50, #9a9aa2 45%, #5a5a60);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.hw:active { filter: brightness(.8); }
+.hw-action  { left: -10px; top: 150px; height: 34px; }
+.hw-volup   { left: -10px; top: 214px; height: 62px; }
+.hw-voldown { left: -10px; top: 290px; height: 62px; }
+.hw-power   { right: -10px; top: 236px; height: 98px; }
+.hw-camera  { right: -10px; top: 520px; height: 56px; border-radius: 4px; }
+
+/* ---------- Screen ---------- */
+
+#screen {
+  position: relative;
+  width: var(--sw, 402px);
+  height: var(--sh, 874px);
+  border-radius: 58px;
+  overflow: hidden;
+  isolation: isolate;
+  background: #000;
+  color: var(--label);
+  font-size: 17px;
+  letter-spacing: -.01em;
+  touch-action: none;
+
+  /* system palette */
+  --blue: #0a84ff;
+  --green: #30d158;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --yellow: #ffd60a;
+  --pink: #ff375f;
+  --purple: #bf5af2;
+  --indigo: #5e5ce6;
+  --teal: #40c8e0;
+  --mint: #63e6e2;
+  --brown: #ac8e68;
+  --gray: #8e8e93;
+
+  --ease-spring: cubic-bezier(.32, .72, 0, 1);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-bounce: cubic-bezier(.34, 1.4, .64, 1);
+}
+
+#screen.light {
+  --label: #000;
+  --label2: rgba(60, 60, 67, .62);
+  --label3: rgba(60, 60, 67, .32);
+  --label4: rgba(60, 60, 67, .18);
+  --bg: #fff;
+  --bg2: #f2f2f7;
+  --bg3: #fff;
+  --cell: #fff;
+  --cell-press: #e5e5ea;
+  --sep: rgba(60, 60, 67, .16);
+  --fill: rgba(120, 120, 128, .2);
+  --fill2: rgba(120, 120, 128, .16);
+  --fill3: rgba(118, 118, 128, .12);
+  --accent: #007aff;
+  --blue: #007aff;
+  --green: #34c759;
+  --red: #ff3b30;
+  --orange: #ff9500;
+  --yellow: #ffcc00;
+  --pink: #ff2d55;
+  --purple: #af52de;
+  --indigo: #5856d6;
+  --teal: #30b0c7;
+  color-scheme: light;
+}
+
+#screen.dark {
+  --label: #fff;
+  --label2: rgba(235, 235, 245, .62);
+  --label3: rgba(235, 235, 245, .32);
+  --label4: rgba(235, 235, 245, .18);
+  --bg: #000;
+  --bg2: #000;
+  --bg3: #1c1c1e;
+  --cell: #1c1c1e;
+  --cell-press: #2c2c2e;
+  --sep: rgba(84, 84, 88, .55);
+  --fill: rgba(120, 120, 128, .36);
+  --fill2: rgba(120, 120, 128, .32);
+  --fill3: rgba(118, 118, 128, .24);
+  --accent: #0a84ff;
+  color-scheme: dark;
+}
+
+/* Full-bleed mode on phones: the page becomes the phone */
+body.fullscreen #stage { gap: 0; }
+body.fullscreen #device {
+  --bezel: 0px;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  transform: none;
+}
+body.fullscreen .hw { display: none; }
+body.fullscreen #screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* Installed on a real phone ("Aggiungi alla schermata Home"): the real status bar is already there */
+@media (display-mode: standalone) {
+  body.fullscreen #statusbar { visibility: hidden; }
+}
+
+/* ---------- Layers ---------- */
+
+#wallpaper, #home, #apps, #lock, #nc, #cc, #spotlight, #overlay, #banners, #hud, #dimmer, #screen-off {
+  position: absolute;
+  inset: 0;
+}
+
+#wallpaper   { z-index: 0; background-size: cover; background-position: center; transition: transform .6s var(--ease-spring), filter .4s; }
+#home        { z-index: 10; }
+#apps        { z-index: 20; pointer-events: none; }
+#spotlight   { z-index: 30; pointer-events: none; }
+#lock        { z-index: 40; }
+#nc          { z-index: 45; pointer-events: none; }
+#cc          { z-index: 50; pointer-events: none; }
+#overlay     { z-index: 60; pointer-events: none; }
+#banners     { z-index: 65; pointer-events: none; }
+#hud         { z-index: 66; pointer-events: none; }
+#statusbar   { z-index: 70; }
+#island      { z-index: 80; }
+#homebar     { z-index: 90; }
+#dimmer      { z-index: 95; pointer-events: none; background: #000; opacity: 0; }
+#screen-off  { z-index: 100; pointer-events: none; background: #000; opacity: 0; transition: opacity .35s ease; }
+#screen.off #screen-off { opacity: 1; pointer-events: auto; }
+
+.hidden { display: none !important; }
+
+/* Shared scrollbar hiding */
+.scroll, .scroll-x {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.scroll { overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
+.scroll-x { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; }
+.scroll::-webkit-scrollbar, .scroll-x::-webkit-scrollbar { display: none; }
+
+.tnum { font-variant-numeric: tabular-nums; }

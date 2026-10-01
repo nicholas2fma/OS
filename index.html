@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Ricreazione web di un sistema operativo per smartphone in stile iOS 26, con materiale Liquid Glass.">
+  <title>iOS 26 Web</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/glass.css">
+  <link rel="stylesheet" href="css/system.css">
+  <link rel="stylesheet" href="css/ui.css">
+  <link rel="stylesheet" href="css/apps.css">
+</head>
+<body>
+  <main id="stage">
+    <aside id="help" aria-label="Comandi">
+      <h2>iOS 26 Web</h2>
+      <p class="help-sub">Trascina con il mouse come fosse un dito.</p>
+      <dl>
+        <dt>Sblocca</dt><dd>Scorri in alto sulla schermata di blocco · <kbd>Invio</kbd></dd>
+        <dt>Home</dt><dd>Scorri in alto dalla barra in basso · clic sulla barra · <kbd>Esc</kbd></dd>
+        <dt>Multitasking</dt><dd>Scorri in alto e fermati · <kbd>M</kbd></dd>
+        <dt>Centro di Controllo</dt><dd>Scorri giù dall'angolo in alto a destra · <kbd>C</kbd></dd>
+        <dt>Notifiche</dt><dd>Scorri giù dall'alto a sinistra · <kbd>N</kbd></dd>
+        <dt>Cerca</dt><dd>Scorri giù sulla Home · <kbd>/</kbd></dd>
+        <dt>Modifica Home</dt><dd>Tieni premuto su un'icona</dd>
+        <dt>Blocca</dt><dd>Tasto laterale · <kbd>L</kbd></dd>
+      </dl>
+    </aside>
+
+    <div id="device">
+      <button class="hw hw-action" data-hw="action" aria-label="Tasto Azione"></button>
+      <button class="hw hw-volup" data-hw="volup" aria-label="Volume su"></button>
+      <button class="hw hw-voldown" data-hw="voldown" aria-label="Volume giù"></button>
+      <button class="hw hw-power" data-hw="power" aria-label="Tasto laterale"></button>
+      <button class="hw hw-camera" data-hw="camera" aria-label="Controllo fotocamera"></button>
+
+      <div id="screen">
+        <div id="wallpaper"></div>
+        <div id="home"></div>
+        <div id="apps"></div>
+        <div id="spotlight"></div>
+        <div id="lock"></div>
+        <div id="nc"></div>
+        <div id="cc"></div>
+        <div id="overlay"></div>
+        <div id="banners"></div>
+        <div id="hud"></div>
+        <div id="statusbar"></div>
+        <div id="island"></div>
+        <div id="homebar"><div class="homebar-pill"></div></div>
+        <div id="dimmer"></div>
+        <div id="screen-off"></div>
+      </div>
+    </div>
+  </main>
+
+  <svg id="svg-defs" width="0" height="0" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"><defs></defs></svg>
+
+  <script src="js/core/os.js"></script>
+  <script src="js/core/symbols.js"></script>
+  <script src="js/core/icons.js"></script>
+  <script src="js/core/wallpapers.js"></script>
+  <script src="js/core/glass.js"></script>
+  <script src="js/core/audio.js"></script>
+  <script src="js/core/ui.js"></script>
+  <script src="js/core/statusbar.js"></script>
+  <script src="js/core/island.js"></script>
+  <script src="js/core/notifications.js"></script>
+  <script src="js/core/appmanager.js"></script>
+  <script src="js/core/widgets.js"></script>
+  <script src="js/core/homescreen.js"></script>
+  <script src="js/core/spotlight.js"></script>
+  <script src="js/core/lockscreen.js"></script>
+  <script src="js/core/controlcenter.js"></script>
+  <script src="js/core/gestures.js"></script>
+
+  <script src="js/apps/settings.js"></script>
+  <script src="js/apps/calculator.js"></script>
+  <script src="js/apps/clock.js"></script>
+  <script src="js/apps/weather.js"></script>
+  <script src="js/apps/notes.js"></script>
+  <script src="js/apps/reminders.js"></script>
+  <script src="js/apps/calendar.js"></script>
+  <script src="js/apps/photos.js"></script>
+  <script src="js/apps/camera.js"></script>
+  <script src="js/apps/messages.js"></script>
+  <script src="js/apps/phone.js"></script>
+  <script src="js/apps/music.js"></script>
+  <script src="js/apps/safari.js"></script>
+  <script src="js/apps/maps.js"></script>
+  <script src="js/apps/compass.js"></script>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

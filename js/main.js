@@ -1,0 +1,70 @@
+/* ==========================================================================
+   Boot
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  function applyTheme() {
+    const sc = OS.screenEl;
+    const dark = OS.isDark();
+    sc.classList.toggle('dark', dark);
+    sc.classList.toggle('light', !dark);
+    sc.classList.toggle('glass-tinted', OS.settings.glass === 'tinted');
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
+    OS.chrome();
+    OS.emit('theme', dark);
+  }
+
+  function boot() {
+    OS.screenEl = document.getElementById('screen');
+    OS.Gestures.resize();
+
+    OS.Glass.init();
+    OS.Audio.init();
+    applyTheme();
+    OS.Wallpapers.apply();
+    OS.StatusBar.init();
+    OS.Island.init();
+    OS.Notifications.init();
+    OS.Apps.init();
+    OS.Widgets.init();
+    OS.Home.init();
+    OS.Spotlight.init();
+    OS.Lock.init();
+    OS.CC.init();
+    OS.Gestures.init();
+
+    OS.on('setting:appearance', applyTheme);
+    OS.on('setting:glass', applyTheme);
+    OS.on('setting:wallpaper', () => { OS.Wallpapers.apply(); OS.chrome(); });
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = () => { if (OS.settings.appearance === 'auto') applyTheme(); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange);
+    }
+
+    OS.bootTasks.forEach((fn) => {
+      try { fn(); } catch (e) { console.error('[boot]', e); }
+    });
+
+    setInterval(OS.Icons.tickLive, 1000);
+    OS.chrome();
+
+    // first run: a friendly hello
+    if (!OS.store.get('welcomed', false)) {
+      OS.store.set('welcomed', true);
+      setTimeout(() => OS.notify({
+        app: 'messages',
+        title: 'Benvenuto',
+        body: 'Scorri verso l\'alto per sbloccare. Dall\'angolo in alto a destra apri il Centro di Controllo.',
+        data: { chat: 'benvenuto' },
+        silent: true,
+      }), 1200);
+    }
+
+    // expose for debugging
+    window.iOS = OS;
+  }
+
+  boot();
+})();

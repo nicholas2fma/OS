@@ -1,0 +1,163 @@
+/* ==========================================================================
+   Liquid Glass material
+   --------------------------------------------------------------------------
+   .glass        translucent lens: blurred + saturated backdrop, specular rim,
+                 inner glow. Context (wallpaper / light app / dark app) is set
+                 by custom properties so the same class adapts everywhere.
+   Refraction    js/core/glass.js adds an SVG displacement filter on top in
+                 Chromium browsers (backdrop-filter: url(#…)).
+   ========================================================================== */
+
+#screen {
+  /* over wallpaper (home, lock, control center) */
+  --glass-bg: rgba(255, 255, 255, .08);
+  --glass-filter: blur(10px) saturate(190%) brightness(1.08);
+  --glass-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .32),
+    inset 0 -1px 1px rgba(255, 255, 255, .06),
+    inset 0 0 18px rgba(255, 255, 255, .06),
+    0 10px 30px rgba(0, 0, 0, .16);
+  --glass-rim: linear-gradient(135deg,
+    rgba(255, 255, 255, .85) 0%,
+    rgba(255, 255, 255, .18) 22%,
+    rgba(255, 255, 255, 0) 45%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, .22) 80%,
+    rgba(255, 255, 255, .6) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .16), transparent 60%);
+  --glass-strong-bg: rgba(255, 255, 255, .16);
+}
+
+/* inside apps, light appearance */
+#screen.light .app-window,
+#screen.light .surface-light {
+  --glass-bg: rgba(255, 255, 255, .58);
+  --glass-filter: blur(12px) saturate(200%) brightness(1.04);
+  --glass-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .9),
+    inset 0 -1px 1px rgba(255, 255, 255, .35),
+    0 0 0 .5px rgba(0, 0, 0, .06),
+    0 8px 28px rgba(0, 0, 0, .12);
+  --glass-rim: linear-gradient(135deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, .4) 30%,
+    rgba(255, 255, 255, 0) 55%,
+    rgba(255, 255, 255, .5) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .5), transparent 60%);
+  --glass-strong-bg: rgba(255, 255, 255, .78);
+}
+
+/* inside apps, dark appearance */
+#screen.dark .app-window,
+#screen .surface-dark {
+  --glass-bg: rgba(44, 44, 48, .42);
+  --glass-filter: blur(12px) saturate(180%) brightness(1.1);
+  --glass-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .22),
+    inset 0 -1px 1px rgba(255, 255, 255, .05),
+    0 0 0 .5px rgba(255, 255, 255, .06),
+    0 10px 30px rgba(0, 0, 0, .45);
+  --glass-rim: linear-gradient(135deg,
+    rgba(255, 255, 255, .55) 0%,
+    rgba(255, 255, 255, .1) 28%,
+    rgba(255, 255, 255, 0) 55%,
+    rgba(255, 255, 255, .25) 100%);
+  --glass-sheen: radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .1), transparent 60%);
+  --glass-strong-bg: rgba(50, 50, 54, .72);
+}
+
+/* Some apps are always dark (camera, calculator, clock, weather…) */
+#screen .app-window.force-dark {
+  --glass-bg: rgba(60, 60, 66, .38);
+  --glass-filter: blur(12px) saturate(180%) brightness(1.12);
+  --glass-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .25),
+    inset 0 -1px 1px rgba(255, 255, 255, .05),
+    0 10px 30px rgba(0, 0, 0, .35);
+  --glass-rim: linear-gradient(135deg,
+    rgba(255, 255, 255, .6) 0%,
+    rgba(255, 255, 255, .1) 28%,
+    rgba(255, 255, 255, 0) 55%,
+    rgba(255, 255, 255, .28) 100%);
+  --glass-strong-bg: rgba(58, 58, 62, .7);
+}
+
+/* "Colorato" (tinted) appearance: more frosted, more contrast */
+#screen.glass-tinted {
+  --glass-bg: rgba(30, 30, 36, .38);
+  --glass-filter: blur(22px) saturate(160%) brightness(.95);
+}
+#screen.glass-tinted.light {
+  --glass-bg: rgba(255, 255, 255, .3);
+  --glass-filter: blur(22px) saturate(170%) brightness(1.05);
+}
+#screen.glass-tinted.light .app-window { --glass-bg: rgba(250, 250, 252, .86); --glass-filter: blur(24px) saturate(180%); }
+#screen.glass-tinted.dark .app-window { --glass-bg: rgba(36, 36, 40, .84); --glass-filter: blur(24px) saturate(160%); }
+#screen.glass-tinted .app-window.force-dark { --glass-bg: rgba(40, 40, 44, .82); }
+
+:where(.glass) { position: relative; }
+
+.glass {
+  background: var(--glass-sheen), var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
+}
+
+/* specular rim — a 1px gradient border drawn with a mask */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass.no-rim::before { display: none; }
+
+/* refraction layer (see js/core/glass.js) */
+.lg-host { isolation: isolate; }
+.lg-host.lg-on {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.lg-lens {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.glass-strong {
+  background: var(--glass-sheen), var(--glass-strong-bg);
+}
+
+/* Interactive lens: grows and brightens when pressed, like iOS 26 controls */
+.glass-press {
+  transition: transform .35s var(--ease-bounce), filter .2s, background-color .2s;
+}
+.glass-press:active {
+  transform: scale(1.08);
+  filter: brightness(1.15);
+}
+
+/* Glass applied as text, used by the lock screen clock */
+.glass-text {
+  color: rgba(255, 255, 255, .78);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, .45),
+    0 -1px 0 rgba(0, 0, 0, .06),
+    0 4px 24px rgba(0, 0, 0, .14);
+}
+
+/* Reduced transparency fallback */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: var(--glass-strong-bg); }
+}
