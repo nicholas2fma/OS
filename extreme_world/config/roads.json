@@ -1,0 +1,16 @@
+{
+  "_doc": "Rete stradale. points: waypoint [x,y]; {\"on\": id, \"near\": [x,y]} aggancia la strada a una già definita (incrocio); {\"route_to\": [x,y]} instrada con A* dal punto precedente; {\"switchbacks_to\": [x,y], \"width\": m} sale a tornanti sovrapposti; {\"follow\": \"valley:Nome\", \"offset\": m, \"from\": [x,y], \"to\": [x,y]} segue una valle/fiume/canyon spostata lateralmente; {\"shore\": lago, \"offset\": m, \"from\", \"to\", \"via\"} segue la riva. over: strade scavalcate con cavalcavia. at_grade: incroci a raso. above_lakes: quota minima sopra il livello del lago. flood: tratti volutamente allagati. Una strada può riferirsi solo a strade precedenti.",
+  "roads": [
+    {"id": "A1", "name": "Autostrada A1", "type": "highway",
+     "points": [[-2050, -2830], [-1550, -3110], [-600, -3240], [400, -3260], [1300, -3200], [2050, -3060], [2750, -2900], [3200, -2650],
+                [3260, -2300], [3250, -1800], [3220, -1300], [3155, -880], [3130, -700]]},
+
+    {"id": "SS1", "name": "SS1 Strada del Lago", "type": "state", "max_grade": 0.10, "above_lakes": ["Lago Grande"],
+     "points": [[1880, -2500],
+                {"follow": "river:Fiume Alba", "offset": 38, "from": [1700, -2200], "to": [1200, 820], "step": 60},
+                {"shore": "Lago Grande", "offset": 26, "from": [1150, 880], "to": [-900, 1000], "via": [200, 700], "step": 30}]},
+
+    {"id": "SS4", "name": "SS4 Passo del Gigante", "type": "mountain",
+     "points": [[820, 1520], {"switchbacks_to": [820, 2200], "width": 330, "first_side": "left"}]}
+  ]
+}

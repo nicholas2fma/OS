@@ -1,0 +1,20 @@
+{
+  "level_name": "extreme_world",
+  "title": "Extreme World",
+  "description": "Mondo aperto di 8 x 8 km: montagne gigantesche (The Giant, The Crater, The Wall), autostrada, tangenziale, laghi, canyon, foreste, paesi e percorsi estremi.",
+  "authors": "Extreme World project",
+  "seed": 20261003,
+  "terrain": {
+    "size": 4096,
+    "square_size": 2.0,
+    "max_height": 1800.0,
+    "z_offset": 0.0,
+    "macro_size": 2048,
+    "erosion_drops": 1600000,
+    "thermal_iterations": 12
+  },
+  "build": {
+    "output_dir": "../build",
+    "zip_name": "extreme_world.zip"
+  }
+}

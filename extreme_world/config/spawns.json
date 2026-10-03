@@ -1,0 +1,10 @@
+{
+  "_doc": "Punti di spawn su strade: road = id della strada, s = metri dall'inizio (negativo = dalla fine), reverse = verso opposto.",
+  "default": "spawn_lago",
+  "spawns": [
+    {"name": "spawn_lago", "title": "Lago Grande - sponda sud", "road": "SS1", "s": -1500},
+    {"name": "spawn_autostrada", "title": "Autostrada A1 - pianura", "road": "A1", "s": 2600},
+    {"name": "spawn_montalba", "title": "Montalba - Strada del Lago", "road": "SS1", "s": 60},
+    {"name": "spawn_passo", "title": "Tornanti del Passo del Gigante", "road": "SS4", "s": 20}
+  ]
+}
