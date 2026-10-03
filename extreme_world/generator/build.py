@@ -32,6 +32,7 @@ from ew.level.objmaterials import write_object_materials  # noqa: E402
 from ew.level.scene import SceneWriter  # noqa: E402
 from ew.pipeline import Context, load_json, stage_terrain  # noqa: E402
 from ew.render3d import render_view  # noqa: E402
+from ew import structures as S  # noqa: E402
 from ew.roads import decals as D  # noqa: E402
 from ew.roads.network import RoadNetwork  # noqa: E402
 from ew.ter import heights_to_u16, write_ter, write_terrain_json  # noqa: E402
@@ -81,9 +82,9 @@ def build(args):
     # 2. strade
     types = load_json("road_types.json")
     roads_cfg = load_json("roads.json")["roads"]
-    net = RoadNetwork(g, T["h"], types, rivers=T["rivers"], lakes=T["lakes"], lines=named_lines(ctx.landforms))
+    net = RoadNetwork(g, T["h"], types, rivers=T["rivers"], lakes=T["lakes"], lines=named_lines(ctx.landforms), dam=T.get("dam"))
     for spec in roads_cfg:
-        net.add(spec)
+        net.add_any(spec)
     h = T["h"].copy()
     road_masks = net.stamp_all(h)
     ctx.log(f"strade: {len(net.roads)} tracciati, terreno modellato")
@@ -125,6 +126,11 @@ def build(args):
     for rid in net.order:
         n_decals += D.road_scene_objects(net.roads[rid], scene)
         bridges += D.bridge_meshroads(net.roads[rid], scene)
+    sw = S.StructureWriter(level_dir, name, scene, g, h)
+    st_bridges = S.bridge_structures(sw, net, bridges, road_masks["core_id"], rdist)
+    st_rails = S.guardrails(sw, net, h)
+    st_dam = S.dam_structure(sw, T.get("dam"), T["h"])
+    ctx.log(f"strutture: {len(sw.files)} mesh, {sw.tris} triangoli, ponti {st_bridges}, guardrail {st_rails}")
     blocks, river_objs = water_objects(scene, g, h, lake_masks, T["rivers"], T["lakes"])
     spawns_cfg = load_json("spawns.json")
     spawns = spawn_objects(scene, net, spawns_cfg["spawns"])
@@ -158,6 +164,7 @@ def build(args):
                   for rid, r in net.roads.items()},
         "decals": n_decals, "bridges": len(bridges), "water_blocks": len(blocks), "rivers": river_objs,
         "water_coverage": {b["lake"]: b["coverage"] for b in blocks},
+        "structures": {"meshes": len(sw.files), "triangles": sw.tris, "bridges": st_bridges, "guardrails": st_rails, "dam": st_dam},
         "spawns": spawns, "scene_objects": scene.count(),
         "height_range_m": [round(float(h.min()), 1), round(float(h.max()), 1)],
         "layers_used": {M.NAMES[i]: int(c) for i, c in zip(*np.unique(layers, return_counts=True))},

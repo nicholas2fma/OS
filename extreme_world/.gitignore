@@ -1,3 +1,6 @@
 build/
 __pycache__/
 *.pyc
+node_modules/
+tools/preview3d/export*/
+tools/preview3d/package-lock.json

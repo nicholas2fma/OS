@@ -82,15 +82,37 @@ class WaterBuilder:
             level = lk["level"]
             sub = h[win]
             inside = rho < 1.0
-            bed = level - 0.6 - lk["depth"] * (1.0 - np.clip(rho, 0, 1) ** 2) ** 0.7
+            X, Y = g.window_mesh(win)
+            d_out = ndimage.distance_transform_edt(~inside) * g.step   # distanza dalla riva verso terra
+            d_in = ndimage.distance_transform_edt(inside) * g.step     # distanza dalla riva verso il largo
+            # fondale: scende gradualmente dalla riva fino alla profondità massima
+            shelf = smoothstep(-0.4, 0.5, self.noise.fbm(X, Y, 260.0, octaves=3, salt=313))  # 0 spiaggia, 1 scogliera
+            bed = level - 0.4 - np.minimum(lk["depth"], d_in * (0.06 + 0.35 * shelf))
             sub[:] = np.where(inside, np.minimum(sub, bed), sub)
-            # sponda chiusa: subito fuori dal lago il terreno sale sopra il livello, con un
-            # raccordo graduale (soglia naturale, non un argine)
-            rim = level + 0.5 + (rho - 1.0) * 40.0
-            w = smoothstep(1.7, 1.0, rho) * (rho >= 1.0)
-            sub[:] = sub + w * np.maximum(rim - sub, 0.0)
+            # sponde: tra una pendenza minima (sponda chiusa, niente fuoriuscite) e una massima
+            # che varia da spiaggia di ghiaia (15%) a sponda rocciosa (~120%), raccordate al
+            # rilievo circostante entro alcune centinaia di metri
+            out = ~inside
+            s_max = 0.15 + 1.05 * shelf
+            upper = level + 0.6 + s_max * d_out + 0.002 * d_out ** 2
+            fade = smoothstep(420.0, 120.0, d_out)
+            lowered = np.minimum(sub, upper)
+            sub[:] = np.where(out, sub + (lowered - sub) * fade, sub)
+            # sponda chiusa: fuori dal lago il terreno resta sopra il livello per 200 m (pendenza
+            # minima del 4%), con un innalzamento massimo di 12 m; l'emissario resta libero
+            # (il fiume incide poi il proprio alveo)
+            free = np.zeros(sub.shape, dtype=bool)
+            for rv in self.lf.get("rivers", []):
+                if rv.get("from_lake") == lk["name"]:
+                    fr = PolyFeature(rv["line"], spacing=6.0)
+                    dr, _, _ = fr.field.query(X, Y, max_dist=300)
+                    free |= dr < 60.0
+            band = out & (d_out < 200.0) & ~free
+            lower = np.minimum(level + 0.6 + 0.04 * d_out, sub + 12.0)
+            sub[:] = np.where(band, np.maximum(sub, lower), sub)
             self.lakes[lk["name"]] = {"level": level, "center": (cx, cy), "window": win, "kind": "lake",
-                                      "block_angle": float(lk.get("rot_deg", 0.0))}
+                                      "block_angle": float(lk.get("rot_deg", 0.0)),
+                                      "design": rho < 1.14}
             log(f"lago {lk['name']}: livello {level} m")
         return h
 
@@ -185,6 +207,8 @@ def lake_mask(g: Grid, h: np.ndarray, lk: dict) -> np.ndarray:
         (ax, ay), (bx, by) = lk["upstream_of"]
         X, Y = g.window_mesh(win)
         below &= ((bx - ax) * (Y - ay) - (by - ay) * (X - ax)) > 0
+    if lk.get("design") is not None:
+        below &= lk["design"]   # niente "colature" lungo l'emissario o nelle valli vicine
     lab, nlab = ndimage.label(below)
     cx, cy = lk["center"]
     ix, iy = g.to_index(cx, cy)

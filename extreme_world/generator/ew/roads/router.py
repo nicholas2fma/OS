@@ -65,7 +65,7 @@ def _heap_pop(hf, hs, size):
 
 
 @njit(cache=True)
-def _astar(h, cost_mul, cell, sx, sy, gx, gy, max_grade, mult, w_grade, w_cross, w_turn, dirs, max_expand):
+def _astar(h, cost_mul, cell, sx, sy, gx, gy, max_grade, mult, w_grade, w_cross, w_turn, dirs, max_expand, z_target, w_z):
     H, W = h.shape
     N = H * W * 16
     g = np.full(N, np.inf, dtype=np.float32)
@@ -124,6 +124,8 @@ def _astar(h, cost_mul, cell, sx, sy, gx, gy, max_grade, mult, w_grade, w_cross,
             cross = abs(-ty * ddx + tx * ddy)
             ge = grade / max_grade
             step_cost = L * (1.0 + w_grade * ge ** 4 + w_cross * cross * cross) * cm
+            if w_z > 0.0:
+                step_cost += L * w_z * abs(h[ny, nx] - z_target) / 10.0
             if dk != 0:
                 step_cost += w_turn
             s2 = (ny * W + nx) * 16 + k2
@@ -150,7 +152,7 @@ def _astar(h, cost_mul, cell, sx, sy, gx, gy, max_grade, mult, w_grade, w_cross,
 
 
 def route(grid, h, start, goal, max_grade, min_radius=10.0, cell=4.0, margin=500.0, avoid=None,
-          w_grade=4.0, w_cross=6.0, w_turn=3.0, max_expand=30_000_000):
+          w_grade=4.0, w_cross=6.0, w_turn=3.0, max_expand=30_000_000, z_target=0.0, w_z=0.0):
     """Calcola un percorso tra due punti mondo. Restituisce una polilinea (N, 2) in metri."""
     step = grid.step
     factor = max(1, int(round(cell / step)))
@@ -172,7 +174,7 @@ def route(grid, h, start, goal, max_grade, min_radius=10.0, cell=4.0, margin=500
     gyi = int(round((goal[1] - oy) / cell))
     mult = max(1, int(round(min_radius / (2.56 * cell))))
     path, expanded = _astar(sub, cm, float(cell), sxi, syi, gxi, gyi, float(max_grade), int(mult),
-                            float(w_grade), float(w_cross), float(w_turn), DIRS, int(max_expand))
+                            float(w_grade), float(w_cross), float(w_turn), DIRS, int(max_expand), float(z_target), float(w_z))
     if len(path) == 0:
         raise RuntimeError(f"nessun percorso trovato da {start} a {goal} (stati espansi: {expanded})")
     P = np.column_stack([ox + path[:, 0] * cell, oy + path[:, 1] * cell]).astype(np.float64)
@@ -211,7 +213,7 @@ def switchbacks(grid, h, start, end, grade, width, min_radius, first_side=1.0, s
     v = np.array([-u[1], u[0]])
     h0 = float(grid.sample(h, start[0], start[1]))
     dh = float(grid.sample(h, end[0], end[1]) - h0)
-    n = int(np.ceil(max(dh - np.pi * D * grade / 2.0, 0.0) / (width * grade * (1 - width_jitter * 0.5))))
+    n = int(np.ceil(max(abs(dh) - np.pi * D * grade / 2.0, 0.0) / (width * grade * (1 - width_jitter * 0.5))))
     n = max(n, 1)
     a = D / n
     if a / 2.0 < min_radius:

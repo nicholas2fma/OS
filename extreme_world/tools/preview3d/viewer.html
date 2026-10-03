@@ -1,0 +1,97 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Extreme World preview</title>
+<style>html,body{margin:0;background:#9ab}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+const P = new URLSearchParams(location.search);
+const dir = P.get('dir') || 'export';
+const cam = P.get('cam').split(',').map(Number), tgt = P.get('tgt').split(',').map(Number);
+const W = +(P.get('w') || 1280), H = +(P.get('h') || 720);
+const renderer = new THREE.WebGLRenderer({antialias: true, preserveDrawingBuffer: true});
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa8c4e0);
+scene.fog = new THREE.Fog(0xb8cce0, 1500, 9000);
+const camera = new THREE.PerspectiveCamera(+(P.get('fov') || 55), W / H, 0.5, 20000);
+camera.up.set(0, 0, 1);
+camera.position.set(...cam);
+camera.lookAt(...tgt);
+scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556644, 0.9));
+const sun = new THREE.DirectionalLight(0xfff2e0, 1.6); sun.position.set(2000, -3000, 4000); scene.add(sun);
+const meta = await (await fetch(`${dir}/scene.json`)).json();
+const hbuf = new Float32Array(await (await fetch(`${dir}/terrain.bin`)).arrayBuffer());
+const cbuf = new Uint8Array(await (await fetch(`${dir}/colors.bin`)).arrayBuffer());
+{ // terreno
+  const {nx, ny, x0, y0, step} = meta;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i;
+    pos[3*k] = x0 + i * step; pos[3*k+1] = y0 + j * step; pos[3*k+2] = hbuf[k];
+    col[3*k] = cbuf[3*k] / 255; col[3*k+1] = cbuf[3*k+1] / 255; col[3*k+2] = cbuf[3*k+2] / 255;
+  }
+  const idx = new Uint32Array((nx - 1) * (ny - 1) * 6); let q = 0;
+  for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    idx[q++] = a; idx[q++] = b; idx[q++] = d; idx[q++] = a; idx[q++] = d; idx[q++] = c;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({vertexColors: true})));
+}
+function ribbon(nodes, color, lift, closed) {
+  const pts = nodes.map(n => new THREE.Vector3(n[0], n[1], n[2] + lift));
+  const pos = [], idx = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(i - 1, 0)], b = pts[Math.min(i + 1, pts.length - 1)];
+    const t = new THREE.Vector3().subVectors(b, a); t.z = 0; t.normalize();
+    const l = new THREE.Vector3(-t.y, t.x, 0).multiplyScalar(nodes[i][3] / 2);
+    pos.push(pts[i].x + l.x, pts[i].y + l.y, pts[i].z, pts[i].x - l.x, pts[i].y - l.y, pts[i].z);
+    if (i > 0) { const k = 2 * i; idx.push(k - 2, k - 1, k + 1, k - 2, k + 1, k); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2}));
+}
+const loader = new ColladaLoader();
+const jobs = [];
+for (const o of meta.objects) {
+  if (o.class === 'DecalRoad') {
+    if (o.material === 'ew_road_invisible') continue;
+    const c = o.material.startsWith('ew_line') ? 0xf0f0f0 : (o.material.includes('dirt') ? 0x7a5c40 : (o.material.includes('gravel') ? 0x9a9488 : 0x3c3c3e));
+    scene.add(ribbon(o.nodes, c, o.material.startsWith('ew_line') ? 0.06 : 0.04));
+  } else if (o.class === 'MeshRoad') {
+    const top = ribbon(o.nodes.map(n => [n[0], n[1], n[2], n[3]]), 0x55575a, 0.0);
+    scene.add(top);
+    const bot = ribbon(o.nodes.map(n => [n[0], n[1], n[2] - n[4], n[3]]), 0x9a9a96, 0.0); scene.add(bot);
+  } else if (o.class === 'River') {
+    scene.add(ribbon(o.nodes, 0x3a6f88, 0.0));
+  } else if (o.class === 'WaterBlock') {
+    const g = new THREE.PlaneGeometry(o.scale[0], o.scale[1]);
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color: 0x2f6a82, transparent: true, opacity: 0.85}));
+    m.position.set(...o.position);
+    if (o.rot) m.rotation.z = Math.atan2(o.rot[1], o.rot[0]);
+    scene.add(m);
+  } else if (o.class === 'SpawnSphere') {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1.9, 4.5, 1.4), new THREE.MeshLambertMaterial({color: 0xd02020}));
+    m.position.set(o.position[0], o.position[1], o.position[2] + 0.2);
+    m.rotation.z = Math.atan2(o.rot[1], o.rot[0]);
+    scene.add(m);
+  } else if (o.class === 'TSStatic') {
+    jobs.push(new Promise(res => loader.load(`${dir}/${o.shape}`, c => {
+      const s = c.scene; s.rotation.set(0, 0, 0); s.position.set(...o.position);
+      s.traverse(n => { if (n.isMesh) n.material = new THREE.MeshLambertMaterial({color: n.material.name && n.material.name.includes('metal') ? 0xb8bcc2 : 0xb0aca2}); });
+      scene.add(s); res();
+    }, undefined, e => { console.error('DAE', o.shape, e); res(); })));
+  }
+}
+await Promise.all(jobs);
+renderer.render(scene, camera);
+window.__done = true;
+</script></body></html>

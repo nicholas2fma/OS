@@ -213,7 +213,8 @@ def road_scene_objects(road: Road, scene, base_group="MissionGroup/roads"):
             count += 1
         else:
             w = road.spec.get("width", t["width"])
-            scene.add(grp, _decal(_nodes(road, idx, 0.0, w + 0.4, 0.0), surf_mat, 10, t.get("texture_length", 14), over))
+            scene.add(grp, _decal(_nodes(road, idx, 0.0, w + 0.4, 0.0), surf_mat, 10, t.get("texture_length", 14), over,
+                                  extra={"looped": True} if road.spec.get("looped") else None))
             count += 1
             if paved and road.kind not in ("narrow", "broken"):
                 edge = w / 2.0 - 0.35
@@ -234,15 +235,19 @@ def road_scene_objects(road: Road, scene, base_group="MissionGroup/roads"):
             off = t["median"] / 2.0 + cw / 2.0 - 0.6
             for side, rev in ((-1.0, False), (1.0, True)):
                 scene.add(f"{base_group}/ai", _decal(_nodes(road, idx, side * off, 7.6, 0.0, rev), "ew_road_invisible", 50, 10,
-                                                      extra={**ai, "oneWay": True, "lanesLeft": 0, "lanesRight": t.get("lanes", 2)}))
+                                                      extra={**ai, "name": f"ia_{road.rid}_{'a' if rev else 'b'}", "oneWay": True,
+                                                             "lanesLeft": 0, "lanesRight": t.get("lanes", 2)}))
                 count += 1
         else:
             w = road.spec.get("width", t["width"])
             extra = dict(ai)
-            if t.get("one_way"):
+            if t.get("one_way") or road.spec.get("looped"):
                 extra.update({"oneWay": True, "lanesLeft": 0, "lanesRight": t.get("lanes", 1)})
+            if road.spec.get("looped"):
+                extra["looped"] = True
             elif t.get("lanes", 2) >= 2:
                 extra.update({"lanesLeft": 1, "lanesRight": 1})
+            extra["name"] = f"ia_{road.rid}"
             scene.add(f"{base_group}/ai", _decal(_nodes(road, idx, 0.0, w), "ew_road_invisible", 50, 10, extra=extra))
             count += 1
     return count

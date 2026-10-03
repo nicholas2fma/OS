@@ -166,16 +166,22 @@ def clamp_grade(z, ds, gmax, anchors_idx, anchors_z, zmin=None, iterations=4):
         lower = np.full(n, -np.inf)
         upper = np.full(n, np.inf)
     step = gmax * ds
-    for _ in range(iterations):
+    fixed = np.zeros(n, dtype=bool)
+    for i in anchors_idx:
+        fixed[i] = True
+    for _ in range(max(iterations, 3)):
         if zmin is not None:
             z = np.maximum(z, zmin)
         z = np.clip(z, lower, upper)
-        for i in range(1, n):
-            z[i] = min(max(z[i], z[i - 1] - step), z[i - 1] + step)
-        for i in range(n - 2, -1, -1):
-            z[i] = min(max(z[i], z[i + 1] - step), z[i + 1] + step)
         for i, v in zip(anchors_idx, anchors_z):
             z[i] = v
+        # le passate propagano il vincolo dagli ancoraggi senza mai spostarli
+        for i in range(1, n):
+            if not fixed[i]:
+                z[i] = min(max(z[i], z[i - 1] - step), z[i - 1] + step)
+        for i in range(n - 2, -1, -1):
+            if not fixed[i]:
+                z[i] = min(max(z[i], z[i + 1] - step), z[i + 1] + step)
     return z
 
 
@@ -191,8 +197,9 @@ def runs(mask):
 # ======================================================================= rete
 class RoadNetwork:
     def __init__(self, grid: Grid, h_natural: np.ndarray, road_types: dict, rivers=None, lakes=None, avoid=None,
-                 lines=None):
+                 lines=None, dam=None):
         self.lines = lines or {}
+        self.dam = dam
         self.grid = grid
         self.h0 = h_natural
         self.types = road_types
@@ -258,6 +265,13 @@ class RoadNetwork:
         dist = ndimage.distance_transform_edt(~m[ys, xs]) * g.step
         dist = ndimage.gaussian_filter(dist, 3.0)
         cs = measure.find_contours(dist, wp.get("offset", 20.0))
+        sub_m = m[ys, xs]
+
+        def on_land(c):
+            ii = np.clip(np.rint(c).astype(int), 0, np.array(sub_m.shape) - 1)
+            return 1.0 - sub_m[ii[:, 0], ii[:, 1]].mean()
+        # il contorno di riva giusto sta sulla terraferma (non attorno a isole o buchi)
+        cs = [c for c in cs if on_land(c) > 0.98] or cs
         c = max(cs, key=len)
         X = g.x0 + (c[:, 1] + xs.start) * g.step
         Y = g.y0 + (c[:, 0] + ys.start) * g.step
@@ -278,10 +292,114 @@ class RoadNetwork:
         arc, _, _ = resample_polyline(arc, wp.get("step", 30.0))
         return [p for p in arc]
 
+    def _expand_rim(self, wp):
+        """{"crater_rim": [cx, cy], "r0", "r1", "from_deg", "to_deg"}: linea di cresta del bordo."""
+        cx, cy = wp["crater_rim"]
+        a0, a1 = np.deg2rad(wp["from_deg"]), np.deg2rad(wp["to_deg"])
+        n = max(8, int(abs(a1 - a0) * wp.get("r1", 600) / 25.0))
+        rs = np.linspace(wp.get("r0", 300.0), wp.get("r1", 600.0), 60)
+        hs = ndimage.gaussian_filter(self.h0, 4.0)
+        pts = []
+        for a in np.linspace(a0, a1, n):
+            xs = cx + rs * np.cos(a)
+            ys = cy + rs * np.sin(a)
+            z = self.grid.sample(hs, xs, ys)
+            r = rs[int(np.argmax(z))] + wp.get("inset", 0.0)
+            pts.append([cx + r * np.cos(a), cy + r * np.sin(a)])
+        P = np.array(pts)
+        P = ndimage.gaussian_filter1d(P, 1.5, axis=0, mode="nearest")
+        return [p for p in P]
+
+    def _expand_curl(self, wp):
+        """{"curl": [x, y], "heading_deg", "radius", "lead"}: rettilineo, curva a sinistra di 270°
+        e uscita che scavalca il tratto di ingresso (percorso a spirale con autoattraversamento)."""
+        x0, y0 = wp["curl"]
+        th = np.deg2rad(wp.get("heading_deg", 0.0))
+        R = wp.get("radius", 50.0)
+        lead = wp.get("lead", 120.0)
+        t = np.array([np.cos(th), np.sin(th)])
+        n = np.array([-t[1], t[0]])
+        A = np.array([x0, y0])
+        B = A + t * lead
+        C = B + n * R
+        pts = [A + t * d for d in np.linspace(0, lead, 6)]
+        for a in np.linspace(-np.pi / 2, np.pi, 28)[1:]:
+            pts.append(C + R * (np.cos(a) * t + np.sin(a) * n))
+        end = pts[-1]
+        exit_dir = -n
+        for d in np.linspace(0, R + wp.get("tail", 140.0), 8)[1:]:
+            pts.append(end + exit_dir * d)
+        return pts
+
+    def _expand_contour(self, wp):
+        """{"contour": quota, "from": [x,y], "to": [x,y], "smooth": m, "step": m}: segue una curva
+        di livello del terreno livellato (strade di mezzacosta e cenge scavate nelle pareti)."""
+        from skimage import measure
+        g = self.grid
+        fx, fy = wp["from"]
+        tx, ty = wp["to"]
+        pad = wp.get("margin", 500.0)
+        win = g.window(min(fx, tx), min(fy, ty), max(fx, tx), max(fy, ty), pad=pad)
+        sub = ndimage.gaussian_filter(self.h0[win], wp.get("smooth", 15.0) / g.step)
+        best = None
+        via = np.asarray(wp["via"]) if "via" in wp else None
+        for c in measure.find_contours(sub, wp["contour"]):
+            X = g.x0 + (c[:, 1] + win[1].start) * g.step
+            Y = g.y0 + (c[:, 0] + win[0].start) * g.step
+            ring = np.column_stack([X, Y])
+            da = np.hypot(*(ring - np.array([fx, fy])).T)
+            db = np.hypot(*(ring - np.array([tx, ty])).T)
+            ia, ib = int(np.argmin(da)), int(np.argmin(db))
+            closed = np.hypot(*(ring[0] - ring[-1])) < 2 * g.step
+            cands = [ring[min(ia, ib):max(ia, ib) + 1] if ia <= ib else ring[ib:ia + 1][::-1]]
+            if ia > ib:
+                cands = [ring[ib:ia + 1][::-1]]
+            if closed:
+                other = np.vstack([ring[max(ia, ib):], ring[:min(ia, ib) + 1]])
+                cands.append(other if ia > ib else other[::-1])
+            for arc in cands:
+                score = da.min() + db.min()
+                if via is not None:
+                    score += np.min(np.hypot(*(arc - via).T))
+                if best is None or score < best[0]:
+                    if np.hypot(*(arc[0] - np.array([fx, fy]))) > np.hypot(*(arc[-1] - np.array([fx, fy]))):
+                        arc = arc[::-1]
+                    best = (score, arc)
+        if best is None or best[0] > 900:
+            raise RuntimeError(f"curva di livello {wp['contour']} non trovata tra {wp['from']} e {wp['to']}")
+        arc, _, _ = resample_polyline(best[1], 4.0)
+        arc = ndimage.gaussian_filter1d(arc, 3.0, axis=0, mode="nearest")
+        arc, _, _ = resample_polyline(arc, wp.get("step", 30.0))
+        return [p for p in arc]
+
+    def _expand_dam(self, spec):
+        """Punti del coronamento della diga (arco verso monte, 3 m a valle del paramento)."""
+        d = self.dam
+        a = np.array(d["a"], dtype=np.float64)
+        b = np.array(d["b"], dtype=np.float64)
+        L = float(np.linalg.norm(b - a))
+        t = (b - a) / L
+        up = np.array([-t[1], t[0]])
+        ext = d.get("ext", 14.0)
+        ss = np.linspace(-ext, L + ext, 12)
+        arch = 18.0 * (1 - ((ss - L / 2) / (L / 2 + d.get("ext_arch", 40.0))) ** 2)
+        pts = [a + t * s_ + up * (ar - 3.0) for s_, ar in zip(ss, arch)]
+        spec["_dam_pts"] = (pts[1], pts[-2], d["crest"])
+        return pts
+
     def _centerline(self, spec, t):
         wps = []
         for wp in spec["points"]:
-            if isinstance(wp, dict) and "shore" in wp:
+            if isinstance(wp, dict) and "dam_crest" in wp:
+                wps.extend([list(p) for p in self._expand_dam(spec)])
+            elif isinstance(wp, dict) and "contour" in wp:
+                wps.extend([list(p) for p in self._expand_contour(wp)])
+            elif isinstance(wp, dict) and "crater_rim" in wp:
+                wps.extend([list(p) for p in self._expand_rim(wp)])
+            elif isinstance(wp, dict) and "curl" in wp:
+                spec["_has_curl"] = True
+                wps.extend([list(p) for p in self._expand_curl(wp)])
+            elif isinstance(wp, dict) and "shore" in wp:
                 wps.extend([list(p) for p in self._expand_shore(wp)])
             elif isinstance(wp, dict) and "follow" in wp:
                 wps.extend([list(p) for p in self._expand_follow(wp)])
@@ -332,7 +450,8 @@ class RoadNetwork:
                                    max_grade=t["max_grade"] * spec.get("route_grade", 0.92),
                                    min_radius=t["min_radius"], cell=spec.get("route_cell", 4.0),
                                    margin=spec.get("route_margin", 450.0), avoid=self.avoid,
-                                   w_cross=spec.get("w_cross", 6.0), w_turn=spec.get("w_turn", 3.0))
+                                   w_cross=spec.get("w_cross", 6.0), w_turn=spec.get("w_turn", 3.0),
+                                   z_target=spec.get("route_z", 0.0), w_z=spec.get("w_z", 0.0))
                 seg = router.chaikin(seg, spec.get("chaikin", 3))
                 pieces.append(seg)
                 cur = [pts[i]]
@@ -413,6 +532,20 @@ class RoadNetwork:
                     zc = float(other.z_at(s_other))
                     road.anchors.append((float(s_here), zc, f"incrocio a raso {other_id}"))
                     road.junctions.append((other_id, float(s_here), float(s_other)))
+        # la strada che scavalca se stessa (ricciolo): il secondo passaggio è un ponte
+        for (i, ti, j, tj) in (segment_intersections(road.P, road.P) if spec.get("_has_curl") else []):
+            if j <= i + 10:
+                continue
+            s_a = road.s[i] + ti * DS
+            s_b = road.s[j] + tj * DS
+            lo, hi = min(s_a, s_b), max(s_a, s_b)
+            if hi - lo < 60.0:
+                continue
+            half = road.half_core + 9.0
+            sel = np.abs(road.s - hi) <= half + 6.0
+            forced.append(Structure("bridge", hi - half - 6.0, hi + half + 6.0, "sovrappasso del ricciolo"))
+            road.crossings.append({"type": "self", "s_low": float(lo), "s_high": float(hi)})
+            road._self_cross = getattr(road, "_self_cross", []) + [(float(lo), float(hi))]
         # fiumi
         for rv in self.rivers:
             Pr = rv["P"]
@@ -470,7 +603,7 @@ class RoadNetwork:
         ai, az = [], []
         for s_a, z_a, _ in anchors:
             i = int(road.idx(s_a))
-            if ai and abs(i - ai[-1]) < 2:
+            if ai and abs(i - ai[-1]) < 4:
                 continue
             ai.append(i)
             az.append(z_a)
@@ -503,7 +636,11 @@ class RoadNetwork:
         cut = ghi - z
         out = []
         if t["bridge_fill"] < 99:
-            for i0, i1 in runs(fill > t["bridge_fill"]):
+            # ponte se il vuoto è sotto l'asse; un solo lato più basso (strade di sponda o di
+            # mezzacosta) si risolve con riporto e muro di sostegno
+            fill_c = z - gc
+            need = fill_c > t["bridge_fill"]
+            for i0, i1 in runs(need):
                 # estende finché il riporto torna modesto
                 while i0 > 0 and fill[i0 - 1] > t["bridge_fill"] * 0.45:
                     i0 -= 1
@@ -538,6 +675,14 @@ class RoadNetwork:
         road.structures = merged
 
     # --------------------------------------------------------------- build
+    def add_any(self, spec: dict):
+        """Aggiunge una voce di roads.json: strada, rotatoria o svincolo."""
+        if spec.get("interchange") == "diamond":
+            return [self.add(sp) for sp in self.interchange_specs(spec)]
+        if "center" in spec and "radius" in spec:
+            return [self.add(self.loop_spec(spec))]
+        return [self.add(spec)]
+
     def add(self, spec: dict):
         kind = spec["type"]
         t = dict(self.types[kind])
@@ -552,11 +697,25 @@ class RoadNetwork:
         for k, link in enumerate(links):
             if link is not None:
                 self._junction_anchor(road, link[0], at_end=(k == len(links) - 1))
+        if "_dam_pts" in spec:
+            pa, pb, crest = spec["_dam_pts"]
+            sa = float(road.field.query(np.array([pa[0]]), np.array([pa[1]]))[1][0])
+            sb = float(road.field.query(np.array([pb[0]]), np.array([pb[1]]))[1][0])
+            for s_k in np.linspace(sa, sb, 6):
+                road.anchors.append((float(s_k), crest + 0.15, "coronamento della diga"))
+            spec.setdefault("force_structures", []).append({"kind": "bridge", "s0": sa, "s1": sb})
         for a in spec.get("anchors", []):
-            road.anchors.append((a["s"] if "s" in a else float(road.field.query(np.array([a["at"][0]]), np.array([a["at"][1]]))[1][0]),
-                                 a["z"], "imposto"))
+            s_a = a["s"] if "s" in a else float(road.field.query(np.array([a["at"][0]]), np.array([a["at"][1]]))[1][0])
+            road.anchors.append((min(float(s_a), road.length), a["z"], "imposto"))
         forced = self._crossings(road)
         self._profile(road, forced)
+        for lo, hi in getattr(road, "_self_cross", []):
+            z_lo = float(road.z_at(lo))
+            need = z_lo + (7.0 if road.rank < 70 else 7.5)
+            if road.z_at(hi) < need:
+                road.anchors.append((hi, need, "franco del ricciolo"))
+                road.anchors.append((lo, z_lo, "passaggio inferiore del ricciolo"))
+                self._profile(road, forced)
         self._bank(road)
         self._structures(road, forced)
         self.roads[road.rid] = road
@@ -567,6 +726,84 @@ class RoadNetwork:
         log(f"{road.rid:<22} {kind:<9} {road.length:7.0f} m  quota {road.z.min():5.0f}-{road.z.max():5.0f}  "
             f"pend.max {grade.max() * 100:4.1f}%  ponti {br:5.0f} m  gallerie {tu:5.0f} m")
         return road
+
+    # ------------------------------------------------------------- svincoli
+    def interchange_specs(self, spec: dict) -> list:
+        """Svincolo a rombo: la strada `cross` scavalca la strada a carreggiate separate `main`;
+        quattro rampe a senso unico collegano ogni carreggiata alla strada trasversale, con
+        tratto parallelo iniziale/finale (corsia di decelerazione/accelerazione)."""
+        main = self.roads[spec["main"]]
+        cross = self.roads[spec["cross"]]
+        hits = segment_intersections(main.P, cross.P)
+        if not hits:
+            raise RuntimeError(f"svincolo {spec['id']}: {spec['cross']} non incrocia {spec['main']}")
+        i, ti, j, tj = hits[0]
+        sc = main.s[i] + ti * (main.s[i + 1] - main.s[i])
+        scr = cross.s[j] + tj * (cross.s[j + 1] - cross.s[j])
+        C = main.point(np.array([sc]))[0]
+        t = main.tan[i]
+        n = main.nor[i]
+        u = cross.tan[j]
+        if np.dot(u, -n) < 0:
+            u = -u                       # u verso il lato destro della strada principale
+        L = spec.get("ramp_len", 320.0)
+        spread = spec.get("spread", 75.0)
+        oc = main.t["median"] / 2.0 + main.t["carriageway"] / 2.0 + 1.6   # corsia esterna
+        out_off = main.half_paved + spec.get("ramp_gap", 16.0)
+
+        def on_cross(dist):
+            s_q = float(np.clip(scr + dist * (1 if np.dot(cross.tan[j], u) > 0 else -1), 0, cross.length))
+            return [float(v) for v in cross.point(np.array([s_q]))[0]]
+
+        E_r = on_cross(spread)
+        E_l = on_cross(-spread)
+        pid = spec["id"]
+        ramp = {"type": "ramp", "rank": 78}
+        P = lambda v: [float(v[0]), float(v[1])]  # noqa: E731
+        z_main = float(main.z_at(sc))
+
+        def zc(E):
+            d, s_q, _ = cross.field.query(np.array([E[0]]), np.array([E[1]]))
+            return float(cross.z_at(s_q[0]))
+
+        # lunghezza di ogni rampa adeguata al dislivello (pendenza media ~5%)
+        L_r = max(L, abs(zc(E_r) - z_main) / 0.05 + 260.0)
+        L_l = max(L, abs(zc(E_l) - z_main) / 0.05 + 260.0)
+        specs = [
+            # carreggiata destra (marcia lungo +t): uscita prima dell'incrocio, entrata dopo
+            {**ramp, "id": f"{pid}_uscita_d", "name": f"{pid} uscita", "points": [
+                {"on": main.rid, "near": P(C - t * L_r), "offset": -oc}, P(C - t * (L_r - 120) - n * (oc + 4)),
+                P(C - t * (L_r - 220) - n * out_off), P(np.array(E_r) - t * 28), {"on": cross.rid, "near": E_r}]},
+            {**ramp, "id": f"{pid}_entrata_d", "name": f"{pid} entrata", "points": [
+                {"on": cross.rid, "near": E_r}, P(np.array(E_r) + t * 28), P(C + t * (L_r - 220) - n * out_off),
+                P(C + t * (L_r - 120) - n * (oc + 4)), {"on": main.rid, "near": P(C + t * L_r), "offset": -oc}]},
+            # carreggiata sinistra (marcia lungo -t)
+            {**ramp, "id": f"{pid}_uscita_s", "name": f"{pid} uscita", "points": [
+                {"on": main.rid, "near": P(C + t * L_l), "offset": oc}, P(C + t * (L_l - 120) + n * (oc + 4)),
+                P(C + t * (L_l - 220) + n * out_off), P(np.array(E_l) + t * 28), {"on": cross.rid, "near": E_l}]},
+            {**ramp, "id": f"{pid}_entrata_s", "name": f"{pid} entrata", "points": [
+                {"on": cross.rid, "near": E_l}, P(np.array(E_l) - t * 28), P(C - t * (L_l - 220) + n * out_off),
+                P(C - t * (L_l - 120) + n * (oc + 4)), {"on": main.rid, "near": P(C - t * L_l), "offset": oc}]},
+        ]
+        return specs
+
+    def loop_spec(self, spec: dict) -> dict:
+        """Rotatoria: anello chiuso piano, percorso in senso antiorario (circolazione a destra)."""
+        cx, cy = spec["center"]
+        r = spec["radius"]
+        a0 = np.deg2rad(spec.get("start_deg", -90.0))
+        ang = a0 + np.linspace(0, 2 * np.pi, 49)
+        pts = [[float(cx + r * np.cos(a)), float(cy + r * np.sin(a))] for a in ang]
+        z = spec.get("z", float(self.grid.sample(self.h0, cx, cy)))
+        out = {k: v for k, v in spec.items() if k not in ("center", "radius")}
+        out["points"] = pts
+        out["anchors"] = [{"s": 0.0, "z": z}, {"s": 2 * np.pi * r, "z": z}] + \
+                         [{"s": 2 * np.pi * r * k / 8, "z": z} for k in range(1, 8)]
+        out["looped"] = True
+        out.setdefault("smooth", 30)
+        out.setdefault("bridge_fill", 99.0)   # rotatoria su rilevato, mai su ponte
+        out.setdefault("max_fill_width", 40.0)
+        return out
 
     # ---------------------------------------------------------------- stamp
     def stamp_all(self, h: np.ndarray):

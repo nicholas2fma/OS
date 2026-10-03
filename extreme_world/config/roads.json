@@ -1,16 +1,31 @@
 {
-  "_doc": "Rete stradale. points: waypoint [x,y]; {\"on\": id, \"near\": [x,y]} aggancia la strada a una già definita (incrocio); {\"route_to\": [x,y]} instrada con A* dal punto precedente; {\"switchbacks_to\": [x,y], \"width\": m} sale a tornanti sovrapposti; {\"follow\": \"valley:Nome\", \"offset\": m, \"from\": [x,y], \"to\": [x,y]} segue una valle/fiume/canyon spostata lateralmente; {\"shore\": lago, \"offset\": m, \"from\", \"to\", \"via\"} segue la riva. over: strade scavalcate con cavalcavia. at_grade: incroci a raso. above_lakes: quota minima sopra il livello del lago. flood: tratti volutamente allagati. Una strada può riferirsi solo a strade precedenti.",
+  "_doc": "Rete stradale. points: [x,y]; {\"on\": id, \"near\": [x,y]} incrocio con una strada già definita; {\"route_to\": [x,y]} instradamento A*; {\"switchbacks_to\": [x,y], \"width\": m} tornanti sovrapposti; {\"follow\": \"valley:|river:|canyon:Nome\", \"offset\", \"from\", \"to\"} segue una linea del rilievo; {\"shore\": lago, \"offset\", \"from\", \"to\", \"via\"} segue la riva; {\"crater_rim\": [cx,cy], ...} cresta del cratere; {\"curl\": [x,y], ...} ricciolo con autoattraversamento; {\"dam_crest\": true} coronamento della diga. Voci speciali: rotatoria (center, radius) e svincolo a rombo (interchange: diamond, main, cross). over: strade scavalcate. above_lakes / flood: quota sopra il lago / tratti allagati. route_z, w_z: quota obiettivo per l'A*. L'ordine conta: si può fare riferimento solo a voci precedenti.",
   "roads": [
-    {"id": "A1", "name": "Autostrada A1", "type": "highway",
-     "points": [[-2050, -2830], [-1550, -3110], [-600, -3240], [400, -3260], [1300, -3200], [2050, -3060], [2750, -2900], [3200, -2650],
-                [3260, -2300], [3250, -1800], [3220, -1300], [3155, -880], [3130, -700]]},
-
-    {"id": "SS1", "name": "SS1 Strada del Lago", "type": "state", "max_grade": 0.10, "above_lakes": ["Lago Grande"],
-     "points": [[1880, -2500],
-                {"follow": "river:Fiume Alba", "offset": 38, "from": [1700, -2200], "to": [1200, 820], "step": 60},
-                {"shore": "Lago Grande", "offset": 26, "from": [1150, 880], "to": [-900, 1000], "via": [200, 700], "step": 30}]},
-
-    {"id": "SS4", "name": "SS4 Passo del Gigante", "type": "mountain",
-     "points": [[820, 1520], {"switchbacks_to": [820, 2200], "width": 330, "first_side": "left"}]}
+    {"id": "A1", "name": "Autostrada A1", "type": "highway", "points": [[-1830, -2800], [-1500, -3080], [-600, -3240], [400, -3260], [1300, -3200], [2050, -3060], [2750, -2900], [3200, -2650], [3260, -2300], [3250, -1800], [3220, -1300], [3155, -880], [3130, -700]]},
+    {"id": "RA_OVEST", "name": "Rotatoria Pratolungo Ovest", "type": "urban", "center": [-1905, -2735], "radius": 34},
+    {"id": "RA_T1_O", "name": "Rotatoria Montalba Ovest", "type": "urban", "center": [1250, -2480], "radius": 34},
+    {"id": "RA_T1_E", "name": "Rotatoria Montalba Est", "type": "urban", "center": [2780, -2330], "radius": 34},
+    {"id": "SP2", "name": "SP2 Provinciale di Pratolungo", "type": "state", "points": [{"on": "RA_OVEST", "near": [-1875, -2715]}, [-1600, -2600], [-1250, -2480], [-700, -2470], [-200, -2520], [400, -2560], [900, -2520], {"on": "RA_T1_O", "near": [1216, -2480]}]},
+    {"id": "U1", "name": "Corso di Montalba", "type": "urban", "points": [{"on": "RA_T1_O", "near": [1284, -2480]}, [1600, -2420], [2050, -2350], [2500, -2330], {"on": "RA_T1_E", "near": [2746, -2330]}]},
+    {"id": "T1", "name": "Tangenziale di Montalba", "type": "ring", "points": [{"on": "RA_T1_O", "near": [1262, -2446]}, [1330, -2150], [1550, -1900], [1950, -1790], [2350, -1850], [2650, -2050], {"on": "RA_T1_E", "near": [2770, -2297]}]},
+    {"id": "SP8", "name": "SP8 Montalba - Cascine Sud", "type": "state", "over": ["A1"], "points": [{"on": "RA_T1_O", "near": [1250, -2514]}, [1225, -2800], [1195, -3100], [1165, -3400], [1120, -3800]]},
+    {"id": "SV_MONTALBA_O", "interchange": "diamond", "main": "A1", "cross": "SP8", "ramp_len": 320, "spread": 78},
+    {"id": "SP9", "name": "SP9 Montalba - Zona Industriale", "type": "state", "over": ["A1"], "points": [{"on": "RA_T1_E", "near": [2814, -2330]}, [3000, -2200], [3250, -2050], [3450, -2020], [3560, -2020]]},
+    {"id": "SV_ZI", "interchange": "diamond", "main": "A1", "cross": "SP9", "ramp_len": 380, "spread": 135},
+    {"id": "SS1", "name": "SS1 Strada del Lago", "type": "state", "max_grade": 0.1, "above_lakes": ["Lago Grande"], "over": ["T1"], "points": [{"on": "U1", "near": [1960, -2363]}, {"follow": "river:Fiume Alba", "offset": 38, "from": [1700, -2200], "to": [1200, 820], "step": 60}, {"shore": "Lago Grande", "offset": 26, "from": [1150, 880], "to": [-900, 1000], "via": [200, 700], "step": 30}]},
+    {"id": "SV_T1_NORD", "interchange": "diamond", "main": "T1", "cross": "SS1", "ramp_len": 280, "spread": 85},
+    {"id": "SS3", "name": "SS3 Panoramica del Lago", "type": "state", "above_lakes": ["Lago Grande"], "flood": [{"lake": "Lago Grande", "from": [-420, 1390], "to": [-330, 1405], "depth": 0.35}], "points": [{"on": "SS1", "near": [-905, 1005]}, {"shore": "Lago Grande", "offset": 24, "from": [-920, 1030], "to": [1170, 905], "via": [0, 1460], "step": 30}, {"on": "SS1", "near": [1175, 880]}]},
+    {"id": "SS4", "name": "SS4 Passo del Gigante", "type": "mountain", "points": [{"on": "SS3", "near": [960, 1505]}, [960, 1540], {"switchbacks_to": [940, 2180], "width": 240, "first_side": "right"}, [830, 2260]]},
+    {"id": "SP5", "name": "SP5 Strada sul Precipizio", "type": "narrow", "points": [{"on": "SS4", "near": [1080, 2060]}, {"contour": 905, "from": [1110, 2060], "to": [3300, 2260], "via": [1950, 1930], "smooth": 18, "step": 30, "margin": 500}, {"route_to": [2925, 990]}]},
+    {"id": "SP6", "name": "SP6 Strada dell'Invaso e della Diga", "type": "local", "above_lakes": ["Bacino di Montalba"], "points": [{"on": "SP5", "near": [2925, 990]}, {"shore": "Bacino di Montalba", "offset": 18, "from": [2920, 985], "to": [2880, 200], "via": [2840, 600], "step": 25}, {"dam_crest": true}, {"shore": "Bacino di Montalba", "offset": 18, "from": [3105, 175], "to": [3040, 980], "via": [3100, 600], "step": 25}, {"on": "SP5", "near": [2990, 1040]}]},
+    {"id": "SP7", "name": "SP7 Salita della Diga", "type": "local", "points": [{"on": "A1", "near": [3130, -700]}, [3110, -640], {"route_to": [2900, 110]}, {"on": "SP6", "near": [2875, 195]}]},
+    {"id": "SP10", "name": "SP10 Strada del Lago Alto", "type": "narrow", "points": [{"on": "SS3", "near": [-885, 1015]}, [-900, 1060], {"switchbacks_to": [-1490, 2210], "width": 200, "first_side": "right"}, [-1560, 2300]]},
+    {"id": "SP11", "name": "SP11 Strada della Forra", "type": "local", "points": [{"on": "SP2", "near": [-1240, -2475]}, [-1290, -2150], {"follow": "canyon:Gola della Forra", "offset": 12, "from": [-1320, -2000], "to": [-2120, 430], "step": 40}]},
+    {"id": "SP12", "name": "SP12 Altopiano e Cratere", "type": "gravel", "points": [{"on": "SP2", "near": [-1650, -2590]}, [-1700, -2350], {"switchbacks_to": [-1950, -1620], "width": 220, "first_side": "left"}, {"route_to": [-2400, -600]}, {"route_to": [-2760, 230]}, {"switchbacks_to": [-2905, 650], "width": 170, "first_side": "right"}]},
+    {"id": "SP13", "name": "SP13 Strada di Cresta del Cratere", "type": "narrow", "points": [{"on": "SP12", "near": [-2905, 650]}, {"crater_rim": [-2900, 1100], "r0": 300, "r1": 640, "from_deg": -90, "to_deg": 160, "inset": 3}]},
+    {"id": "SP14", "name": "SP14 Spirale di Monte Spirale", "type": "mountain", "points": [{"on": "SS1", "near": [1465, 240]}, [1560, 300], {"curl": [1650, 380], "heading_deg": 134, "radius": 48, "lead": 100, "tail": 70}, {"switchbacks_to": [1880, 610], "width": 220, "first_side": "left"}]},
+    {"id": "E1", "name": "Strada Distrutta", "type": "broken", "points": [{"on": "RA_OVEST", "near": [-1939, -2725]}, {"route_to": [-2700, -2450]}, {"route_to": [-3250, -2150]}, {"route_to": [-3650, -1750]}], "w_turn": 6.0},
+    {"id": "E2", "name": "Sentiero dei Calanchi", "type": "trail", "points": [{"on": "E1", "near": [-2700, -2450]}, {"route_to": [-3000, -3000]}, {"route_to": [-3500, -3400]}, {"route_to": [-3800, -2800]}, {"route_to": [-3500, -2300]}, {"on": "E1", "near": [-3300, -2050]}]},
+    {"id": "PT", "name": "Pista Prove Buche", "type": "local", "width": 7.0, "points": [{"on": "RA_OVEST", "near": [-1905, -2769]}, [-1880, -3000], [-1800, -3350], [-1500, -3520], [-900, -3560], [-500, -3560]]}
   ]
 }

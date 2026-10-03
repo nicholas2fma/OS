@@ -185,6 +185,30 @@ def validate(build_dir: Path) -> Report:
             p = level_dir / o["shapeName"].replace(f"/levels/{name}/", "")
             if not p.exists():
                 R.err(f"{o['__file__']}: mesh mancante {o['shapeName']}")
+    # mesh Collada: parsing rigoroso (pycollada) e materiali definiti
+    try:
+        import collada
+        dae_files = sorted(level_dir.rglob("*.dae"))
+        bad_dae = 0
+        dae_tris = 0
+        for f in dae_files:
+            try:
+                d = collada.Collada(str(f))
+                for mat in d.materials:
+                    if mat.id not in mats:
+                        R.err(f"{f.name}: materiale {mat.id} senza definizione in *.materials.json")
+                for geo in d.geometries:
+                    for prim in geo.primitives:
+                        dae_tris += len(prim)
+                names = [n.id for n in d.scene.nodes]
+                if names != ["base00"] or not any(c.id == "start01" for c in d.scene.nodes[0].children):
+                    R.err(f"{f.name}: gerarchia diversa da base00/start01")
+            except Exception as ex:  # noqa: BLE001
+                bad_dae += 1
+                R.err(f"{f.name}: Collada non valido ({ex})")
+        R.ok(f"mesh Collada: {len(dae_files)} file validi secondo pycollada, {dae_tris} triangoli totali")
+    except ImportError:
+        R.warn("pycollada non installato: mesh non verificate")
     tb = next(o for o in objs if o["class"] == "TerrainBlock")
     if tb["terrainFile"] != f"/levels/{name}/theTerrain.ter":
         R.err("TerrainBlock.terrainFile errato")
@@ -201,13 +225,17 @@ def validate(build_dir: Path) -> Report:
     for nm, o in spawns.items():
         x, y, z = o["position"]
         tz = float(g.sample(h, x, y))
-        win = g.window(x - 4, y - 4, x + 4, y + 4)
-        span = float(h[win].max() - h[win].min())
+        rm = o["rotationMatrix"]
+        fwd = -np.array(rm[3:5])       # frontale del veicolo = -Y locale
+        lat = np.array(rm[0:2])
+        pts = [np.array([x, y]) + fwd * a + lat * b for a in (-2.4, 0, 2.4) for b in (-0.95, 0.95)]
+        zs = [float(g.sample(h, p[0], p[1])) for p in pts]
+        span = max(zs) - min(zs)
         if not (0.2 <= z - tz <= 2.5):
             R.err(f"spawn {nm}: {z - tz:.2f} m sopra il terreno (atteso 0.2..2.5)")
-        if span > 1.2:
-            R.warn(f"spawn {nm}: terreno irregolare entro 4 m ({span:.2f} m)")
-        R.ok(f"spawn {nm}: {z - tz:.2f} m sopra il terreno, dislivello locale {span:.2f} m")
+        if span > 0.6:
+            R.warn(f"spawn {nm}: dislivello sotto l'impronta del veicolo {span:.2f} m")
+        R.ok(f"spawn {nm}: {z - tz:.2f} m sopra il terreno, dislivello sotto l'impronta del veicolo {span:.2f} m")
     for p in info.get("previews", []):
         if not (level_dir / p).exists():
             R.err(f"anteprima mancante {p}")
@@ -221,30 +249,40 @@ def validate(build_dir: Path) -> Report:
     worst = []
     for o in ai:
         N = np.array(o["nodes"])
-        # ricampiona la linea ogni 1 m e confronta con il terreno
+        rid = o.get("name", "ia_?")[3:]
+        rid = rid[:-2] if rid.endswith(("_a", "_b")) and rid[:-2] in report["roads"] else rid
+        rinfo = report["roads"].get(rid, {})
         seg = np.linalg.norm(np.diff(N[:, :2], axis=0), axis=1)
         s = np.concatenate([[0], np.cumsum(seg)])
         ss = np.arange(0, s[-1], 1.0)
+        if o.get("name", "").endswith("_a"):
+            st_s = s[-1] - ss   # nodi invertiti per la carreggiata opposta
+        else:
+            st_s = ss
         x = np.interp(ss, s, N[:, 0])
         y = np.interp(ss, s, N[:, 1])
         zt = g.sample(h, x, y)
         zn = np.interp(ss, s, N[:, 2])
-        on_ground = np.abs(zt - zn) < 0.6
-        if on_ground.sum() < 10:
-            continue
-        # gradini: variazione di pendenza tra campioni consecutivi sul terreno
+        ok = np.abs(zt - zn) < 0.6
+        # escluse: strutture (+12 m), primi/ultimi 20 m (incroci), dove la linea non è sul terreno
+        for stc in rinfo.get("structures", []):
+            ok &= ~((st_s > stc["s0"] - 12) & (st_s < stc["s1"] + 12))
+        ok &= (ss > 20) & (ss < s[-1] - 20)
         dz = np.diff(zt)
-        ok = on_ground[1:] & on_ground[:-1]
-        step = np.abs(np.diff(dz))[ok[1:] & ok[:-1]] if len(dz) > 2 else np.array([0])
-        grade = np.abs(dz[ok])
-        worst.append((o["__file__"], float(step.max() if step.size else 0), float(np.percentile(step, 99.5) if step.size else 0),
-                      float(grade.max() if grade.size else 0), float(1 - on_ground.mean())))
+        kink = np.abs(np.diff(dz))
+        m = ok[2:] & ok[1:-1] & ok[:-2]
+        if m.sum() < 10:
+            continue
+        k = kink[m]
+        idx = np.nonzero(m)[0][np.argmax(k)]
+        worst.append((rid, float(k.max()), float(np.percentile(k, 99.5)), (float(x[idx + 1]), float(y[idx + 1]))))
     if worst:
-        mx = max(worst, key=lambda w: w[2])
-        R.ok(f"profilo stradale sul terreno quantizzato: discontinuità di pendenza 99.5° percentile max {mx[2] * 100:.1f} cm/m ({mx[0]})")
-        for w in worst:
-            if w[1] > 0.12:
-                R.warn(f"{w[0]}: discontinuità di pendenza puntuale {w[1] * 100:.1f} cm su 1 m")
+        p995 = max(w[2] for w in worst)
+        R.ok(f"profili stradali sul terreno quantizzato (escluse testate dei ponti e incroci): 99,5° percentile delle "
+             f"variazioni di pendenza su 1 m = {p995 * 100:.1f} cm")
+        for w in sorted(worst, key=lambda w: -w[1])[:8]:
+            if w[1] > 0.10:
+                R.warn(f"strada {w[0]}: variazione di pendenza puntuale {w[1] * 100:.1f} cm su 1 m in ({w[3][0]:.0f}, {w[3][1]:.0f})")
     # pendenze dichiarate
     for rid, r in report["roads"].items():
         R.ok(f"strada {rid}: {r['length_m']} m, quote {r['z_min']}-{r['z_max']} m, pendenza max {r['max_grade_pct']}%")

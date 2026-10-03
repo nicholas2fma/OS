@@ -75,6 +75,13 @@ class TerrainBuilder:
             if "center" in lk:
                 cx, cy = lk["center"]
                 auto.append([cx, cy, lk["level"] + 5.0])
+                # anello di punti appena sopra il livello: la conca contiene il lago
+                a, b = lk["axes"]
+                ang = np.deg2rad(lk.get("rot_deg", 0.0))
+                for th in np.linspace(0, 2 * np.pi, 12, endpoint=False):
+                    u, v = 1.45 * a * np.cos(th), 1.45 * b * np.sin(th) + np.sign(np.sin(th)) * 150.0
+                    auto.append([cx + u * np.cos(ang) - v * np.sin(ang), cy + u * np.sin(ang) + v * np.cos(ang),
+                                 lk["level"] + 16.0])
         # i punti automatici (valli, laghi) hanno la precedenza: un punto esplicito troppo
         # vicino a una valle la trasformerebbe in una trincea
         out = list(auto)
