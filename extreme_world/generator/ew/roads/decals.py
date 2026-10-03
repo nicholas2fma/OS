@@ -193,9 +193,8 @@ def road_scene_objects(road: Road, scene, base_group="MissionGroup/roads"):
         if i1 - i0 < 1:
             continue
         idx = _adaptive_indices(road, i0, i1)
-        over = kind == "bridge"
-        if kind == "tunnel":
-            continue  # dentro le gallerie il piano viabile è nella mesh della galleria
+        # su ponti e in galleria il decal si proietta sulla mesh (impalcato, pavimento del tubo)
+        over = kind in ("bridge", "tunnel")
         if road.dual:
             cw = t["carriageway"]
             off = t["median"] / 2.0 + cw / 2.0
@@ -208,9 +207,10 @@ def road_scene_objects(road: Road, scene, base_group="MissionGroup/roads"):
                     lo = o + (loff if not rev else -loff)
                     scene.add(grp, _decal(_nodes(road, idx, lo, 0.15, 0.0, rev), mat, 2, 12, over))
                 count += 4
-            # spartitraffico centrale in cemento
-            scene.add(grp, _decal(_nodes(road, idx, 0.0, t["median"], 0.0), "ew_road_asphalt", 9, 16, over))
-            count += 1
+            # spartitraffico centrale (in galleria è il setto tra le due canne)
+            if kind != "tunnel":
+                scene.add(grp, _decal(_nodes(road, idx, 0.0, t["median"], 0.0), "ew_road_asphalt", 9, 16, over))
+                count += 1
         else:
             w = road.spec.get("width", t["width"])
             scene.add(grp, _decal(_nodes(road, idx, 0.0, w + 0.4, 0.0), surf_mat, 10, t.get("texture_length", 14), over,

@@ -57,8 +57,9 @@ class Mesh:
         R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
         corners = np.array([[x, y, z] for z in (-sz, sz) for y in (-sy, sy) for x in (-sx, sx)])
         W = corners @ R.T + np.array([cx, cy, cz])
-        faces = [(0, 1, 3, 2, sx, sy), (4, 6, 7, 5, sx, sy), (0, 4, 5, 1, sx, sz), (2, 3, 7, 6, sx, sz),
-                 (0, 2, 6, 4, sy, sz), (1, 5, 7, 3, sy, sz)]
+        # ordine dei vertici antiorario visto da fuori: normale geometrica verso l'esterno
+        faces = [(0, 2, 3, 1, sx, sy), (4, 5, 7, 6, sx, sy), (0, 1, 5, 4, sx, sz), (2, 6, 7, 3, sx, sz),
+                 (0, 4, 6, 2, sy, sz), (1, 3, 7, 5, sy, sz)]
         for a, b, cc, d, du, dv in faces:
             u = 2 * du / uv_scale
             v = 2 * dv / uv_scale
@@ -95,10 +96,11 @@ class Mesh:
             nl, nz = nl / ln, nz / ln
             Nv = left * nl + np.array([0, 0, 1.0]) * nz
             N = np.vstack([Nv, Nv])
+            # ordine dei vertici coerente con la normale assegnata (lato visibile = lato normale)
             tris = []
             for i in range(n - 1):
-                tris.append([i, i + 1, n + i + 1])
-                tris.append([i, n + i + 1, n + i])
+                tris.append([i, n + i + 1, i + 1])
+                tris.append([i, n + i, n + i + 1])
             self.add(mat, P, N, UV, tris)
         if caps and not closed_profile:
             pass
@@ -117,6 +119,30 @@ class Mesh:
             P = [[cx, cy, cz + height]] + [[r[0], r[1], cz + height] for r in ring[:-1]]
             tris = [[0, i + 1, (i + 1) % sides + 1] for i in range(sides)]
             self.add(mat, P, [[0, 0, 1]] * len(P), [[0.5, 0.5]] * len(P), tris)
+
+    def signed_volume(self):
+        """Volume con segno (positivo se le facce di una mesh chiusa guardano all'esterno)."""
+        v = 0.0
+        for part in self.parts.values():
+            for P, I in zip(part["p"], part["i"]):
+                local = I - (I.min() if len(I) else 0)
+                a, b, c = P[local[:, 0]], P[local[:, 1]], P[local[:, 2]]
+                v += float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()) / 6.0
+        return v
+
+    def winding_consistency(self):
+        """Frazione di triangoli la cui normale geometrica concorda con le normali assegnate."""
+        ok = tot = 0
+        for part in self.parts.values():
+            for P, N, I in zip(part["p"], part["n"], part["i"]):
+                local = I - (I.min() if len(I) else 0)
+                a, b, c = P[local[:, 0]], P[local[:, 1]], P[local[:, 2]]
+                gn = np.cross(b - a, c - a)
+                nn = N[local[:, 0]] + N[local[:, 1]] + N[local[:, 2]]
+                d = np.einsum("ij,ij->i", gn, nn)
+                ok += int((d > 0).sum())
+                tot += len(d)
+        return ok / max(tot, 1)
 
     def triangle_count(self):
         return sum(sum(len(i) for i in p["i"]) for p in self.parts.values())

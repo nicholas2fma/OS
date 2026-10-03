@@ -247,6 +247,19 @@ def validate(build_dir: Path) -> Report:
     ai = [o for o in objs if o["class"] == "DecalRoad" and o.get("material") == "ew_road_invisible"]
     R.ok(f"DecalRoad visibili {len(road_objs)}, IA {len(ai)}, impalcati MeshRoad {len(bridges)}")
     worst = []
+    # testate dei ponti: esclusione geometrica (le stazioni delle linee IA sfalsate non
+    # coincidono con quelle dell'asse, lo scarto cresce lungo le curve)
+    from scipy.spatial import cKDTree
+    deck_pts, deck_r = [], []
+    for o in bridges:
+        Nb = np.array(o["nodes"])
+        segb = np.linalg.norm(np.diff(Nb[:, :2], axis=0), axis=1)
+        sb = np.concatenate([[0], np.cumsum(segb)])
+        sq = np.arange(0, sb[-1] + 0.1, 2.0)
+        deck_pts.append(np.column_stack([np.interp(sq, sb, Nb[:, 0]), np.interp(sq, sb, Nb[:, 1])]))
+        deck_r.append(np.interp(sq, sb, Nb[:, 3]) / 2.0 + 12.0)
+    deck_tree = cKDTree(np.vstack(deck_pts)) if deck_pts else None
+    deck_r = np.concatenate(deck_r) if deck_r else None
     for o in ai:
         N = np.array(o["nodes"])
         rid = o.get("name", "ia_?")[3:]
@@ -268,6 +281,9 @@ def validate(build_dir: Path) -> Report:
         for stc in rinfo.get("structures", []):
             ok &= ~((st_s > stc["s0"] - 12) & (st_s < stc["s1"] + 12))
         ok &= (ss > 20) & (ss < s[-1] - 20)
+        if deck_tree is not None:
+            dd, ii = deck_tree.query(np.column_stack([x, y]))
+            ok &= ~(dd < deck_r[ii])
         dz = np.diff(zt)
         kink = np.abs(np.diff(dz))
         m = ok[2:] & ok[1:-1] & ok[:-2]

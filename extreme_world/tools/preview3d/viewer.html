@@ -25,6 +25,7 @@ const sun = new THREE.DirectionalLight(0xfff2e0, 1.6); sun.position.set(2000, -3
 const meta = await (await fetch(`${dir}/scene.json`)).json();
 const hbuf = new Float32Array(await (await fetch(`${dir}/terrain.bin`)).arrayBuffer());
 const cbuf = new Uint8Array(await (await fetch(`${dir}/colors.bin`)).arrayBuffer());
+const holes = new Uint8Array(await (await fetch(`${dir}/holes.bin`)).arrayBuffer());
 { // terreno
   const {nx, ny, x0, y0, step} = meta;
   const geo = new THREE.BufferGeometry();
@@ -37,11 +38,12 @@ const cbuf = new Uint8Array(await (await fetch(`${dir}/colors.bin`)).arrayBuffer
   const idx = new Uint32Array((nx - 1) * (ny - 1) * 6); let q = 0;
   for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
     const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    if (holes[a]) continue;  // come Torque3D: il vertice (x, y) forato elimina il quadrato [x, x+1] x [y, y+1]
     idx[q++] = a; idx[q++] = b; idx[q++] = d; idx[q++] = a; idx[q++] = d; idx[q++] = c;
   }
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, q), 1));
   geo.computeVertexNormals();
   scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({vertexColors: true})));
 }

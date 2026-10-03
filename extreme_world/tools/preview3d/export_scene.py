@@ -47,6 +47,7 @@ def main():
         colors.append(np.asarray(Image.open(p).convert("RGB")).reshape(-1, 3).mean(0))
     colors = np.array(colors + [[255, 0, 255]] * (256 - len(colors)), dtype=np.float32)
     rgb = colors[lay].astype(np.uint8)
+    (lay == 255).astype(np.uint8).tofile(out / "holes.bin")
     sub.astype("<f4").tofile(out / "terrain.bin")
     rgb.tofile(out / "colors.bin")
     x0 = g.x0 + sx.start * g.step

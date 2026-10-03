@@ -140,7 +140,10 @@ def guardrails(sw: StructureWriter, net, h_final: np.ndarray, chunk_m=360.0):
         if road.kind in ("trail", "climb", "dirt", "urban"):
             continue
         n = len(road.s)
-        ground = ~(road.structure_mask(road.s, "bridge") | road.structure_mask(road.s, "tunnel"))
+        ground = ~road.structure_mask(road.s, "bridge")
+        for st in road.structures:              # gallerie con il tratto artificiale davanti
+            if st.kind == "tunnel":
+                ground &= ~((road.s >= st.s0 - 9.0) & (road.s <= st.s1 + 9.0))
         fast = road.kind in ("highway", "ring", "ramp")
         for side in (1.0, -1.0):
             edge = side * (road.half_paved + 0.55)
@@ -240,3 +243,262 @@ def dam_structure(sw: StructureWriter, dam: dict, h_natural: np.ndarray):
         m.sweep("ew_concrete", pth, [(-0.2, 0), (0.2, 0), (0.2, 1.0), (-0.2, 1.0)], closed_profile=True)
     sw.emit("diga_montalba", m, "MissionGroup/structures/dam", px=1)
     return {"length_m": float(L + 2 * ext), "height_m": float(height), "crest": crest}
+
+
+# ================================================================ gallerie
+def tunnel_structures(sw: StructureWriter, net, layers: np.ndarray, road_core: np.ndarray, hole_value: int = 255):
+    """Gallerie: tubo con volta e pavimento (mesh con collisione), portali, fori nel terreno.
+
+    Il terreno non viene modellato dentro la galleria; agli imbocchi la trincea d'accesso
+    termina contro il versante e lì si praticano i fori (layer 255) in cui entra il tubo."""
+    g = sw.g
+    stats = {"tunnels": 0, "length_m": 0.0, "hole_cells": 0}
+    for rid in net.order:
+        road = net.roads[rid]
+        for k, st in enumerate([s for s in road.structures if s.kind == "tunnel"]):
+            gallery = 8.0                           # tratto artificiale davanti al versante
+            s0 = max(0.0, st.s0 - gallery)
+            s1 = min(road.length, st.s1 + gallery)
+            i0, i1 = int(road.idx(s0)), int(road.idx(s1))
+            sel = np.arange(i0, i1 + 1)
+            Hw = 5.2                                # altezza dei piedritti
+            if road.dual:                           # due canne, una per carreggiata
+                W = road.t["carriageway"] + 2.4
+                offsets = [-(road.t["median"] / 2.0 + road.t["carriageway"] / 2.0),
+                           road.t["median"] / 2.0 + road.t["carriageway"] / 2.0]
+            else:
+                W = 2 * road.half_paved + 2.4       # carreggiata + marciapiedi di servizio
+                offsets = [0.0]
+            R = W / 2.0
+            Hv = 0.55 * R                           # freccia della volta
+            m = Mesh()
+            arc = [(-R * np.cos(a), Hw + Hv * np.sin(a)) for a in np.linspace(0, np.pi, 13)]
+            # profilo interno da destra a sinistra: le facce guardano dentro la galleria
+            inner = [(-R, -0.3), (-R, Hw)] + arc[1:-1] + [(R, Hw), (R, -0.3)]
+            # estensione laterale del guscio esterno: per le canne gemelle i gusci si toccano
+            # sulla mezzeria, verso l'esterno coprono i quadrati di terreno forati (2 m)
+            ext_out = R + 4.0
+            portals = ((st.s0, -1.0), (st.s1, 1.0))      # stazione, verso uscente
+            # galleria artificiale: terreno di riporto sopra i gusci dietro le testate, dove il
+            # versante è più basso (lato a valle); prima dei fori, che dipendono dal terreno
+            for sp, out_dir in portals:
+                _backfill(g, sw.h, road, offsets, ext_out, Hw + Hv + 1.5 + 1.2, sp, out_dir, st,
+                          road_core, net.order.index(rid), ds_start=-3.5)
+            for ti, oc in enumerate(offsets):
+                e_neg = ext_out if ti == 0 else abs(oc)   # verso destra (laterale negativo)
+                e_pos = ext_out if ti == len(offsets) - 1 else abs(oc)
+                P = road.P[sel] + road.nor[sel] * oc
+                z = road.surface(road.s[sel], np.full(len(sel), oc))
+                path = np.column_stack([P, z])
+                m.sweep("ew_concrete", path, inner, closed_profile=False)
+                m.sweep("ew_bridge_deck", path, [(R, -0.02), (-R, -0.02)], closed_profile=False)
+                outer = _outer_profile(R, Hw, Hv, e_neg, e_pos)
+                for sp, out_dir in portals:
+                    hs = _tunnel_holes(g, sw.h, layers, road, oc, R, Hw, Hv, sp, out_dir, hole_value, gallery)
+                    _sink_floor(g, sw.h, road, oc, R, sp, out_dir, gallery, hs + 3.0)
+                    # guscio esterno finché il terreno è forato o non lo ricopre del tutto
+                    reach = max(hs, _shell_exposed(g, sw.h, layers, road, oc, outer, sp, out_dir, hole_value)) + 4.0
+                    a, b = (s0, sp + reach) if out_dir < 0 else (sp - reach, s1)
+                    a, b = max(a, s0), min(b, s1)
+                    j = np.arange(int(road.idx(a)), int(road.idx(b)) + 1)
+                    if len(j) >= 2:
+                        Pj = road.P[j] + road.nor[j] * oc
+                        zj = road.surface(road.s[j], np.full(len(j), oc))
+                        # percorso dal lato sinistro al destro: normali verso l'esterno
+                        m.sweep("ew_concrete", np.column_stack([Pj, zj]), outer[::-1], closed_profile=False)
+                        # chiusura dello spessore dove il guscio finisce dentro il monte
+                        _ring_face(m, road, int(j[-1] if out_dir < 0 else j[0]), oc, inner, outer, -out_dir)
+                    # testata all'estremità del tubo: chiude lo spessore tra profilo interno ed
+                    # esterno e fa da facciata del portale (galleria artificiale fino al versante)
+                    i_end = int(road.idx(s0 if out_dir < 0 else s1))
+                    lo = oc - (e_neg + 1.5 if ti == 0 else abs(oc))
+                    hi = oc + (e_pos + 1.5 if ti == len(offsets) - 1 else abs(oc))
+                    _headwall(m, road, i_end, oc, inner, lo, hi, Hw + Hv + 3.0, out_dir)
+            sw.emit(f"galleria_{rid}_{k + 1}", m, "MissionGroup/structures/tunnels", px=1)
+            stats["tunnels"] += 1
+            stats["length_m"] += float(st.s1 - st.s0)
+    stats["hole_cells"] = int((layers == hole_value).sum())
+    return stats
+
+
+def _outer_profile(R, Hw, Hv, e_neg, e_pos, crown=1.5, base=-1.0):
+    """Profilo esterno della canna da destra (-) a sinistra (+): pareti e volta ellittica."""
+    zs = Hw + 0.9
+    b = Hv + crown - 0.9
+    pts = [(-e_neg, base), (-e_neg, zs)]
+    for a in np.linspace(0, np.pi, 15)[1:-1]:
+        c = -np.cos(a)
+        pts.append((c * (e_neg if c < 0 else e_pos), zs + b * np.sin(a)))
+    pts += [(e_pos, zs), (e_pos, base)]
+    return pts
+
+
+def _frame(road, i, oc):
+    c = road.P[i] + road.nor[i] * oc
+    zz = float(road.surface(np.array([road.s[i]]), np.array([oc]))[0])
+    return np.array([c[0], c[1], zz]), np.array([road.nor[i][0], road.nor[i][1], 0.0]), \
+        np.array([road.tan[i][0], road.tan[i][1], 0.0])
+
+
+def _merge_polylines(A, B):
+    """Ricampiona due polilinee 2D sugli stessi parametri (unione dei vertici di entrambe)."""
+    A = np.asarray(A, dtype=np.float64)
+    B = np.asarray(B, dtype=np.float64)
+
+    def param(P):
+        d = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+        return d / d[-1]
+    ua, ub = param(A), param(B)
+    u = np.unique(np.round(np.concatenate([ua, ub]), 6))
+    res = [np.column_stack([np.interp(u, uu, P[:, 0]), np.interp(u, uu, P[:, 1])]) for P, uu in ((A, ua), (B, ub))]
+    return res[0], res[1]
+
+
+def _strip(m, mat, A, B, normal):
+    """Triangoli tra due polilinee 3D con lo stesso numero di punti, rivolti verso `normal`."""
+    P, I = [], []
+    for i in range(len(A) - 1):
+        for tri in ((A[i], A[i + 1], B[i + 1]), (A[i], B[i + 1], B[i])):
+            gn = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+            if np.linalg.norm(gn) < 1e-8:
+                continue
+            if np.dot(gn, normal) < 0:
+                tri = (tri[0], tri[2], tri[1])
+            I.append([len(P), len(P) + 1, len(P) + 2])
+            P += list(tri)
+    if P:
+        P = np.array(P)
+        uv = np.column_stack([P[:, 0] + P[:, 1], P[:, 2]]) / 2.0
+        m.add(mat, P, np.repeat(np.asarray(normal, dtype=np.float64)[None, :], len(P), 0), uv, I)
+
+
+def _backfill(g, h, road, offsets, ext_out, crown, sp, out_dir, st, road_core, road_index,
+              ds_start=1.0, depth=40.0, slope=0.67):
+    """Rilevato sopra le canne presso un imbocco: piano alla quota del guscio + copertura,
+    scarpate 1:1,5 ai lati e verso l'interno oltre `depth`; non tocca altre strade."""
+    center = (offsets[0] + offsets[-1]) / 2.0
+    halfw = (offsets[-1] - offsets[0]) / 2.0 + ext_out
+    reach_lat = halfw + crown / slope + 2.0
+    reach_s = depth + crown / slope + 2.0
+    a = sp + ds_start if out_dir < 0 else sp - reach_s
+    b = sp + reach_s if out_dir < 0 else sp - ds_start
+    a, b = max(a, 0.0), min(b, road.length)
+    if b - a < 2.0:
+        return
+    i0, i1 = int(road.idx(a)), int(road.idx(b))
+    P = road.P[i0:i1 + 1]
+    win = g.window(P[:, 0].min(), P[:, 1].min(), P[:, 0].max(), P[:, 1].max(), pad=reach_lat + 4)
+    X, Y = g.window_mesh(win)
+    d, s, off = road.field.query(X, Y, max_dist=reach_lat + 4)
+    ds = (s - sp) * (-out_dir)                   # >0 dentro il monte
+    inside = (ds >= ds_start) & (ds <= reach_s) & (d <= reach_lat + 2)
+    zf = road.surface(s, np.zeros_like(s))
+    lat_ex = np.maximum(np.abs(off - center) - halfw, 0.0)
+    target = zf + crown - lat_ex * slope - np.maximum(ds - depth, 0.0) * slope
+    sub = h[win]
+    other = road_core[win]
+    free = (other < 0) | (other == road_index)
+    upd = inside & free & (target > sub)
+    sub[upd] = target[upd]
+
+
+def _sink_floor(g, h, road, oc, R, sp, out_dir, gallery, ds_end, depth=0.3):
+    """Abbassa sotto il pavimento del tubo il terreno a quota strada dentro la galleria
+    artificiale: i quadrati vicini ai fori (vertici 255, colore indefinito) restano nascosti."""
+    a = sp - gallery if out_dir < 0 else sp - ds_end
+    b = sp + ds_end if out_dir < 0 else sp + gallery
+    a, b = max(a, 0.0), min(b, road.length)
+    if b - a < 1.0:
+        return
+    i0, i1 = int(road.idx(a)), int(road.idx(b))
+    P = road.P[i0:i1 + 1] + road.nor[i0:i1 + 1] * oc
+    win = g.window(P[:, 0].min(), P[:, 1].min(), P[:, 0].max(), P[:, 1].max(), pad=R + 4)
+    X, Y = g.window_mesh(win)
+    d, s, off = road.field.query(X, Y, max_dist=abs(oc) + R + 4)
+    ds = (s - sp) * (-out_dir)
+    zf = road.surface(s, np.full_like(s, oc))
+    sub = h[win]
+    sel = (ds >= -gallery + 0.5) & (ds <= ds_end) & (np.abs(off - oc) <= R + 1.0) & (sub < zf + 0.6)
+    sub[sel] = np.minimum(sub[sel], zf[sel] - depth)
+
+
+def _ring_face(m, road, i, oc, inner, outer, facing):
+    """Faccia piana tra profilo interno ed esterno della canna, rivolta verso tan * facing."""
+    o, lat, tan = _frame(road, i, oc)
+    A, B = _merge_polylines(inner, outer)
+    up = np.array([0, 0, 1.0])
+    _strip(m, "ew_concrete", o + np.outer(A[:, 0], lat) + np.outer(A[:, 1], up),
+           o + np.outer(B[:, 0], lat) + np.outer(B[:, 1], up), tan * facing)
+
+
+def _shell_exposed(g, h, layers, road, oc, outer, sp, out_dir, hole_value):
+    """Distanza dall'imbocco oltre la quale il terreno ricopre interamente il guscio esterno."""
+    prof = np.asarray(outer[1:-1], dtype=np.float64)     # senza i tratti sotto la piattaforma
+    lat = np.linspace(prof[:, 0].min(), prof[:, 0].max(), 25)
+    top = np.interp(lat, prof[:, 0], prof[:, 1]) if np.all(np.diff(prof[:, 0]) > 0) else \
+        np.interp(lat, prof[::-1, 0], prof[::-1, 1])
+    last = 0.0
+    for ds in np.arange(0.0, 80.0, 1.0):
+        s = sp - out_dir * ds
+        if s < 0 or s > road.length:
+            break
+        k = int(road.idx(s))
+        q = road.point(np.array([s]))[0] + road.nor[k] * (oc + lat[:, None])
+        zf = float(road.surface(np.array([s]), np.array([oc]))[0])
+        zt = g.sample(h, q[:, 0], q[:, 1])
+        ix = np.clip(np.floor((q[:, 0] - g.x0) / g.step).astype(int), 0, g.size - 1)
+        iy = np.clip(np.floor((q[:, 1] - g.y0) / g.step).astype(int), 0, g.size - 1)
+        holed = layers[iy, ix] == hole_value
+        if ((zt < zf + top + 0.3) | holed).any():
+            last = ds
+    return last
+
+
+def _headwall(m, road, i, oc, inner, lo, hi, top, out_dir, thick=1.2, base=-0.3):
+    """Muro di testata con l'apertura ad arco della canna; lo, hi laterali assoluti."""
+    o, lat, tan = _frame(road, i, oc)
+    up = np.array([0, 0, 1.0])
+    rect = [(lo - oc, base), (lo - oc, top), (hi - oc, top), (hi - oc, base)]
+    A, B = _merge_polylines(inner, rect)
+    back = -tan * out_dir * thick                 # spessore verso l'interno del monte
+
+    def w(P, d=0.0):
+        return o + np.outer(P[:, 0], lat) + np.outer(P[:, 1], up) + (back if d else 0.0)
+    _strip(m, "ew_concrete", w(A), w(B), tan * out_dir)
+    _strip(m, "ew_concrete", w(A, 1), w(B, 1), -tan * out_dir)
+    R4 = np.array(rect)
+    for a, b, nrm in ((0, 1, -lat), (1, 2, up), (2, 3, lat)):
+        p = w(R4[[a, b]])
+        q = w(R4[[a, b]], 1)
+        _strip(m, "ew_concrete", p, q, nrm)
+
+
+def _tunnel_holes(g, h, layers, road, oc, R, Hw, Hv, sp, out_dir, hole_value, gallery):
+    """Fori nei quadrati di terreno che attraversano l'interno della canna presso un imbocco.
+
+    In Torque3D/BeamNG il valore 255 del vertice (x, y) elimina il quadrato [x, x+1] x [y, y+1]
+    (terrCell.cpp e terrFile.cpp). Restituisce la distanza dall'imbocco dell'ultimo foro."""
+    # dall'imbocco verso l'interno; davanti al versante il tubo inizia `gallery` metri prima e
+    # un quadrato forato non deve sporgere oltre la testata (margine di un quadrato, 2,9 m)
+    ds = np.arange(-(gallery - 3.0), 60.0, 0.5)
+    ss = sp - out_dir * ds
+    ok_s = (ss >= 0) & (ss <= road.length)
+    ds, ss = ds[ok_s], ss[ok_s]
+    lat = np.arange(-R - 0.3, R + 0.31, 0.5)
+    Q = road.point(ss)
+    nor = road.nor[road.idx(ss)]
+    zf = road.surface(ss, np.full(len(ss), oc))
+    vault = Hw + Hv * np.sqrt(np.clip(1.0 - (lat / R) ** 2, 0.0, 1.0))
+    last = 0.0
+    for o, v in zip(lat, vault):
+        q = Q + nor * (oc + o)
+        ix = np.floor((q[:, 0] - g.x0) / g.step).astype(int)
+        iy = np.floor((q[:, 1] - g.y0) / g.step).astype(int)
+        ok = (ix >= 0) & (iy >= 0) & (ix < g.size - 1) & (iy < g.size - 1)
+        ix, iy = np.where(ok, ix, 0), np.where(ok, iy, 0)
+        c = np.stack([h[iy, ix], h[iy, ix + 1], h[iy + 1, ix], h[iy + 1, ix + 1]])
+        hit = ok & (c.max(0) > zf + 0.6) & (c.min(0) < zf + v + 0.5)
+        layers[iy[hit], ix[hit]] = hole_value
+        if hit.any():
+            last = max(last, float(ds[hit].max()))
+    return last

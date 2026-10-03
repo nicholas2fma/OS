@@ -1,7 +1,7 @@
 {
   "_doc": "Rete stradale. points: [x,y]; {\"on\": id, \"near\": [x,y]} incrocio con una strada già definita; {\"route_to\": [x,y]} instradamento A*; {\"switchbacks_to\": [x,y], \"width\": m} tornanti sovrapposti; {\"follow\": \"valley:|river:|canyon:Nome\", \"offset\", \"from\", \"to\"} segue una linea del rilievo; {\"shore\": lago, \"offset\", \"from\", \"to\", \"via\"} segue la riva; {\"crater_rim\": [cx,cy], ...} cresta del cratere; {\"curl\": [x,y], ...} ricciolo con autoattraversamento; {\"dam_crest\": true} coronamento della diga. Voci speciali: rotatoria (center, radius) e svincolo a rombo (interchange: diamond, main, cross). over: strade scavalcate. above_lakes / flood: quota sopra il lago / tratti allagati. route_z, w_z: quota obiettivo per l'A*. L'ordine conta: si può fare riferimento solo a voci precedenti.",
   "roads": [
-    {"id": "A1", "name": "Autostrada A1", "type": "highway", "points": [[-1830, -2800], [-1500, -3080], [-600, -3240], [400, -3260], [1300, -3200], [2050, -3060], [2750, -2900], [3200, -2650], [3260, -2300], [3250, -1800], [3220, -1300], [3155, -880], [3130, -700]]},
+    {"id": "A1", "name": "Autostrada A1", "type": "highway", "points": [[-1830, -2800], [-1500, -3080], [-600, -3240], [400, -3260], [1300, -3200], [2050, -3060], [2750, -2900], [3200, -2650], [3260, -2300], [3270, -1850], [3400, -1560], [3515, -1250], [3430, -950], [3230, -760], [3130, -700]]},
     {"id": "RA_OVEST", "name": "Rotatoria Pratolungo Ovest", "type": "urban", "center": [-1905, -2735], "radius": 34},
     {"id": "RA_T1_O", "name": "Rotatoria Montalba Ovest", "type": "urban", "center": [1250, -2480], "radius": 34},
     {"id": "RA_T1_E", "name": "Rotatoria Montalba Est", "type": "urban", "center": [2780, -2330], "radius": 34},
@@ -11,7 +11,7 @@
     {"id": "SP8", "name": "SP8 Montalba - Cascine Sud", "type": "state", "over": ["A1"], "points": [{"on": "RA_T1_O", "near": [1250, -2514]}, [1225, -2800], [1195, -3100], [1165, -3400], [1120, -3800]]},
     {"id": "SV_MONTALBA_O", "interchange": "diamond", "main": "A1", "cross": "SP8", "ramp_len": 320, "spread": 78},
     {"id": "SP9", "name": "SP9 Montalba - Zona Industriale", "type": "state", "over": ["A1"], "points": [{"on": "RA_T1_E", "near": [2814, -2330]}, [3000, -2200], [3250, -2050], [3450, -2020], [3560, -2020]]},
-    {"id": "SV_ZI", "interchange": "diamond", "main": "A1", "cross": "SP9", "ramp_len": 380, "spread": 135},
+    {"id": "SV_ZI", "interchange": "diamond", "main": "A1", "cross": "SP9", "ramp_len": 380, "spread": 135, "ramp_grade": 0.08},
     {"id": "SS1", "name": "SS1 Strada del Lago", "type": "state", "max_grade": 0.1, "above_lakes": ["Lago Grande"], "over": ["T1"], "points": [{"on": "U1", "near": [1960, -2363]}, {"follow": "river:Fiume Alba", "offset": 38, "from": [1700, -2200], "to": [1200, 820], "step": 60}, {"shore": "Lago Grande", "offset": 26, "from": [1150, 880], "to": [-900, 1000], "via": [200, 700], "step": 30}]},
     {"id": "SV_T1_NORD", "interchange": "diamond", "main": "T1", "cross": "SS1", "ramp_len": 280, "spread": 85},
     {"id": "SS3", "name": "SS3 Panoramica del Lago", "type": "state", "above_lakes": ["Lago Grande"], "flood": [{"lake": "Lago Grande", "from": [-420, 1390], "to": [-330, 1405], "depth": 0.35}], "points": [{"on": "SS1", "near": [-905, 1005]}, {"shore": "Lago Grande", "offset": 24, "from": [-920, 1030], "to": [1170, 905], "via": [0, 1460], "step": 30}, {"on": "SS1", "near": [1175, 880]}]},

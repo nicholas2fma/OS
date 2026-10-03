@@ -649,15 +649,25 @@ class RoadNetwork:
                 if road.s[i1] - road.s[i0] >= 14.0:
                     out.append(Structure("bridge", road.s[i0], road.s[i1], f"viadotto (riporto max {fill[i0:i1 + 1].max():.0f} m)"))
         if t["tunnel_cut"] < 99 and not road.spec.get("no_tunnels"):
+            # la galleria si estende finché la copertura minima sulla larghezza (anche sul lato
+            # a valle dei versanti) supera la volta di 4 m; oltre, trincea a mezzacosta
+            r_tube = (t["carriageway"] + 2.4) / 2.0 if road.dual else road.half_paved + 1.2
+            ext = 5.2 + 0.55 * r_tube + 4.0
+            cover = glo - z
             for i0, i1 in runs(cut > t["tunnel_cut"]):
-                while i0 > 0 and cut[i0 - 1] > 10.0:
+                while i0 > 0 and cover[i0 - 1] > ext:
                     i0 -= 1
-                while i1 < len(z) - 1 and cut[i1 + 1] > 10.0:
+                while i1 < len(z) - 1 and cover[i1 + 1] > ext:
                     i1 += 1
                 if road.s[i1] - road.s[i0] >= 60.0:
                     out.append(Structure("tunnel", road.s[i0], road.s[i1], f"galleria (copertura max {cut[i0:i1 + 1].max():.0f} m)"))
         for st in road.spec.get("force_structures", []):
-            out.append(Structure(st["kind"], st["s0"], st["s1"], "imposto"))
+            if "from" in st:
+                sa = float(road.field.query(np.array([st["from"][0]]), np.array([st["from"][1]]))[1][0])
+                sb = float(road.field.query(np.array([st["to"][0]]), np.array([st["to"][1]]))[1][0])
+                out.append(Structure(st["kind"], min(sa, sb), max(sa, sb), st.get("why", "imposto")))
+            else:
+                out.append(Structure(st["kind"], st["s0"], st["s1"], st.get("why", "imposto")))
         out += forced
         # unione degli intervalli dello stesso tipo
         merged = []
@@ -755,10 +765,10 @@ class RoadNetwork:
             s_q = float(np.clip(scr + dist * (1 if np.dot(cross.tan[j], u) > 0 else -1), 0, cross.length))
             return [float(v) for v in cross.point(np.array([s_q]))[0]]
 
-        E_r = on_cross(spread)
-        E_l = on_cross(-spread)
         pid = spec["id"]
         ramp = {"type": "ramp", "rank": 78}
+        if "ramp_grade" in spec:             # rampe in terreno montano (pendenza ammessa maggiore)
+            ramp["max_grade"] = spec["ramp_grade"]
         P = lambda v: [float(v[0]), float(v[1])]  # noqa: E731
         z_main = float(main.z_at(sc))
 
@@ -766,24 +776,64 @@ class RoadNetwork:
             d, s_q, _ = cross.field.query(np.array([E[0]]), np.array([E[1]]))
             return float(cross.z_at(s_q[0]))
 
-        # lunghezza di ogni rampa adeguata al dislivello (pendenza media ~5%)
-        L_r = max(L, abs(zc(E_r) - z_main) / 0.05 + 260.0)
-        L_l = max(L, abs(zc(E_l) - z_main) / 0.05 + 260.0)
+        # lunghezza di ogni rampa adeguata al dislivello (pendenza media ~5%), ma con
+        # l'innesto fuori da gallerie e viadotti della strada principale
+        def room(sign):
+            lim = main.length - sc if sign > 0 else sc
+            for st in main.structures:
+                d = (st.s0 - sc) if sign > 0 else (sc - st.s1)
+                if d > 0:
+                    lim = min(lim, d)
+            return lim - 40.0
+
+        def side(sign):
+            """Punto d'innesto sulla trasversale e lunghezze delle due rampe di un lato.
+            Se lo spazio lungo la principale non basta per il dislivello, l'innesto sulla
+            trasversale si avvicina all'incrocio (dove la quota è più vicina a quella del
+            cavalcavia e quindi della principale)."""
+            g_ramp = spec.get("ramp_grade", self.types["ramp"]["max_grade"]) - 0.01
+            best = None
+            for sp in np.arange(spread, 54.0, -10.0):
+                E = on_cross(sign * sp)
+                want = max(L, abs(zc(E) - z_main) / 0.05 + 260.0)
+                Lb = max(260.0, min(want, room(-1)))
+                Lf = max(260.0, min(want, room(+1)))
+                # dislivello sul tratto fuori dalla piattaforma (dopo la corsia parallela)
+                excess = max(abs(zc(E) - float(main.z_at(sc + d))) - g_ramp * (abs(d) - 190.0 + 0.7 * sp)
+                             for d in (-Lb, Lf))
+                cand = (excess, E, Lb, Lf)
+                if best is None or cand[0] < best[0]:
+                    best = cand
+                if excess <= 1.5:            # stima prudente: il profilo reale ha margine
+                    return E, Lb, Lf
+            log(f"  attenzione: svincolo {pid}: rampe corte per il dislivello (stima {best[0]:+.1f} m)")
+            return best[1], best[2], best[3]
+
+        E_r, L_rb, L_rf = side(1.0)
+        E_l, L_lb, L_lf = side(-1.0)
+
+        def at(ds, lat):
+            """Punto della strada principale a distanza ds dall'incrocio, scostato di lat
+            (positivo a sinistra): le rampe seguono la curvatura del tracciato."""
+            s_q = float(np.clip(sc + ds, 0.0, main.length))
+            k = int(main.idx(s_q))
+            return P(main.point(np.array([s_q]))[0] + main.nor[k] * lat)
+
         specs = [
             # carreggiata destra (marcia lungo +t): uscita prima dell'incrocio, entrata dopo
             {**ramp, "id": f"{pid}_uscita_d", "name": f"{pid} uscita", "points": [
-                {"on": main.rid, "near": P(C - t * L_r), "offset": -oc}, P(C - t * (L_r - 120) - n * (oc + 4)),
-                P(C - t * (L_r - 220) - n * out_off), P(np.array(E_r) - t * 28), {"on": cross.rid, "near": E_r}]},
+                {"on": main.rid, "near": at(-L_rb, 0.0), "offset": -oc}, at(-(L_rb - 120), -(oc + 4)),
+                at(-(L_rb - 220), -out_off), P(np.array(E_r) - t * 28), {"on": cross.rid, "near": E_r}]},
             {**ramp, "id": f"{pid}_entrata_d", "name": f"{pid} entrata", "points": [
-                {"on": cross.rid, "near": E_r}, P(np.array(E_r) + t * 28), P(C + t * (L_r - 220) - n * out_off),
-                P(C + t * (L_r - 120) - n * (oc + 4)), {"on": main.rid, "near": P(C + t * L_r), "offset": -oc}]},
+                {"on": cross.rid, "near": E_r}, P(np.array(E_r) + t * 28), at(L_rf - 220, -out_off),
+                at(L_rf - 120, -(oc + 4)), {"on": main.rid, "near": at(L_rf, 0.0), "offset": -oc}]},
             # carreggiata sinistra (marcia lungo -t)
             {**ramp, "id": f"{pid}_uscita_s", "name": f"{pid} uscita", "points": [
-                {"on": main.rid, "near": P(C + t * L_l), "offset": oc}, P(C + t * (L_l - 120) + n * (oc + 4)),
-                P(C + t * (L_l - 220) + n * out_off), P(np.array(E_l) + t * 28), {"on": cross.rid, "near": E_l}]},
+                {"on": main.rid, "near": at(L_lf, 0.0), "offset": oc}, at(L_lf - 120, oc + 4),
+                at(L_lf - 220, out_off), P(np.array(E_l) + t * 28), {"on": cross.rid, "near": E_l}]},
             {**ramp, "id": f"{pid}_entrata_s", "name": f"{pid} entrata", "points": [
-                {"on": cross.rid, "near": E_l}, P(np.array(E_l) - t * 28), P(C - t * (L_l - 220) + n * out_off),
-                P(C - t * (L_l - 120) + n * (oc + 4)), {"on": main.rid, "near": P(C - t * L_l), "offset": oc}]},
+                {"on": cross.rid, "near": E_l}, P(np.array(E_l) - t * 28), at(-(L_lb - 220), out_off),
+                at(-(L_lb - 120), oc + 4), {"on": main.rid, "near": at(-L_lb, 0.0), "offset": oc}]},
         ]
         return specs
 

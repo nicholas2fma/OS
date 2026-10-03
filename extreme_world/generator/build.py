@@ -105,14 +105,8 @@ def build(args):
     })
     ctx.log("layer map pronta")
 
-    # 5. file del terreno
-    tcfg = world["terrain"]
-    hu16 = heights_to_u16(h, tcfg["max_height"], tcfg["z_offset"])
-    write_ter(level_dir / "theTerrain.ter", hu16, layers, M.NAMES)
-    write_terrain_json(level_dir / "theTerrain.terrain.json", name, "theTerrain.ter", tcfg["size"], M.NAMES)
-    (level_dir / "art/terrains/main.materials.json").write_text(json.dumps(terrain_mats, indent=2) + "\n")
-
     # 6. scena
+    tcfg = world["terrain"]
     scene = SceneWriter(name)
     environment_objects(scene, world, name, level_dir, world["seed"])
     terrain_block(scene, name, tcfg, M.TEXSET)
@@ -130,15 +124,26 @@ def build(args):
     st_bridges = S.bridge_structures(sw, net, bridges, road_masks["core_id"], rdist)
     st_rails = S.guardrails(sw, net, h)
     st_dam = S.dam_structure(sw, T.get("dam"), T["h"])
+    st_tun = S.tunnel_structures(sw, net, layers, road_masks["core_id"])
     ctx.log(f"strutture: {len(sw.files)} mesh, {sw.tris} triangoli, ponti {st_bridges}, guardrail {st_rails}")
     blocks, river_objs = water_objects(scene, g, h, lake_masks, T["rivers"], T["lakes"])
+    # file del terreno (dopo le gallerie: i fori sono nella layer map)
+    tcfg = world["terrain"]
+    hu16 = heights_to_u16(h, tcfg["max_height"], tcfg["z_offset"])
+    write_ter(level_dir / "theTerrain.ter", hu16, layers, M.NAMES)
+    write_terrain_json(level_dir / "theTerrain.terrain.json", name, "theTerrain.ter", tcfg["size"], M.NAMES)
+    (level_dir / "art/terrains/main.materials.json").write_text(json.dumps(terrain_mats, indent=2) + "\n")
+
+
     spawns_cfg = load_json("spawns.json")
     spawns = spawn_objects(scene, net, spawns_cfg["spawns"])
     written = scene.write(level_dir)
     ctx.log(f"scena: {scene.count()} oggetti in {len(written)} file")
 
     # 7. anteprime (dai dati reali del terreno)
-    albedo = np.array([colors[nm] for nm in M.NAMES], dtype=np.float32)[layers] / 255.0
+    pal = np.zeros((256, 3), dtype=np.float32)
+    pal[:len(M.NAMES)] = [colors[nm] for nm in M.NAMES]
+    albedo = pal[layers] / 255.0
     water_lvl = np.full(h.shape, -1e9, dtype=np.float32)
     for lk in lake_masks.values():
         water_lvl[lk["mask"]] = lk["level"]
@@ -164,10 +169,11 @@ def build(args):
                   for rid, r in net.roads.items()},
         "decals": n_decals, "bridges": len(bridges), "water_blocks": len(blocks), "rivers": river_objs,
         "water_coverage": {b["lake"]: b["coverage"] for b in blocks},
-        "structures": {"meshes": len(sw.files), "triangles": sw.tris, "bridges": st_bridges, "guardrails": st_rails, "dam": st_dam},
+        "structures": {"meshes": len(sw.files), "triangles": sw.tris, "bridges": st_bridges, "guardrails": st_rails, "dam": st_dam,
+                       "tunnels": st_tun},
         "spawns": spawns, "scene_objects": scene.count(),
         "height_range_m": [round(float(h.min()), 1), round(float(h.max()), 1)],
-        "layers_used": {M.NAMES[i]: int(c) for i, c in zip(*np.unique(layers, return_counts=True))},
+        "layers_used": {(M.NAMES[i] if i < len(M.NAMES) else "buco"): int(c) for i, c in zip(*np.unique(layers, return_counts=True))},
     })
     (out_root / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     np.save(out_root / "cache" / "final_h.npy", h)
