@@ -495,7 +495,8 @@ def mesh_rock(seed, sub=2):
     for j in range(3):
         np.add.at(N, F[:, j], fn)
     N /= np.linalg.norm(N, axis=1)[:, None]
-    UV = np.column_stack([np.arctan2(P[:, 1], P[:, 0]) / np.pi, P[:, 2]]) * 1.5
+    # proiezione planare obliqua: nessuna cucitura (il rumore della texture nasconde lo stiramento)
+    UV = np.column_stack([P[:, 0] + 0.6 * P[:, 1], P[:, 2] + 0.4 * P[:, 1]]) * 0.8
     m = Mesh()
     m.add("ew_rock_wall", P, N, UV, F)
     return m
