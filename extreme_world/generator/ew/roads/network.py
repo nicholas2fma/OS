@@ -169,19 +169,20 @@ def clamp_grade(z, ds, gmax, anchors_idx, anchors_z, zmin=None, iterations=4):
     fixed = np.zeros(n, dtype=bool)
     for i in anchors_idx:
         fixed[i] = True
+    floor = np.full(n, -np.inf) if zmin is None else np.minimum(np.asarray(zmin, dtype=np.float64), upper)
     for _ in range(max(iterations, 3)):
-        if zmin is not None:
-            z = np.maximum(z, zmin)
+        z = np.maximum(z, floor)
         z = np.clip(z, lower, upper)
         for i, v in zip(anchors_idx, anchors_z):
             z[i] = v
-        # le passate propagano il vincolo dagli ancoraggi senza mai spostarli
+        # le passate propagano il vincolo dagli ancoraggi senza mai spostarli; la quota minima
+        # resta un pavimento, così la passata all'indietro alza il tratto che la precede
         for i in range(1, n):
             if not fixed[i]:
-                z[i] = min(max(z[i], z[i - 1] - step), z[i - 1] + step)
+                z[i] = max(min(max(z[i], z[i - 1] - step), z[i - 1] + step), floor[i])
         for i in range(n - 2, -1, -1):
             if not fixed[i]:
-                z[i] = min(max(z[i], z[i + 1] - step), z[i + 1] + step)
+                z[i] = max(min(max(z[i], z[i + 1] - step), z[i + 1] + step), floor[i])
     return z
 
 
@@ -569,12 +570,18 @@ class RoadNetwork:
                 forced.append(Structure("bridge", s_here - half, s_here + half, f"ponte su {rv['name']}"))
                 road.river_crossings.append({"s": float(s_here), "river": rv["name"], "z_water": float(zr)})
         # strade lungo i laghi: mai sotto il livello dell'acqua, salvo i tratti allagati voluti
-        for lname in spec.get("above_lakes", []):
+        # (automatico per tutti i laghi entro 40 m: una trincea sotto il livello aprirebbe la sponda;
+        # banda e franco maggiori per le strade che lo dichiarano esplicitamente)
+        explicit = set(spec.get("above_lakes", []))
+        for lname in self.lakes:
             lvl = self.lakes[lname]["level"]
             dist = self._lake_distance(lname)
             dl = self.grid.sample(dist, road.P[:, 0], road.P[:, 1])
-            near = dl < spec.get("lake_band", 80.0)
-            zmin[near] = np.maximum(zmin[near], lvl + spec.get("lake_margin", 1.4))
+            band = spec.get("lake_band", 80.0) if lname in explicit else 25.0
+            near = dl < band
+            if not near.any():
+                continue
+            zmin[near] = np.maximum(zmin[near], lvl + (spec.get("lake_margin", 1.4) if lname in explicit else 1.0))
         for fl in spec.get("flood", []):
             fa = float(road.field.query(np.array([fl["from"][0]]), np.array([fl["from"][1]]))[1][0])
             fb = float(road.field.query(np.array([fl["to"][0]]), np.array([fl["to"][1]]))[1][0])
@@ -608,9 +615,19 @@ class RoadNetwork:
             ai.append(i)
             az.append(z_a)
         z = solve_profile(gc, w, lam, ai, az)
-        z = clamp_grade(z, ds, t["max_grade"], ai, az, zmin=road.zmin)
+        # ancoraggi fissi incompatibili con la pendenza massima: la pendenza ammessa sale quel
+        # tanto che basta, così l'eccesso si distribuisce invece di concentrarsi in un gradino
+        gmax = t["max_grade"]
+        if len(ai) >= 2:
+            pairs = sorted(zip(ai, az))
+            need = max(abs(z2 - z1) / max((i2 - i1) * ds, ds) for (i1, z1), (i2, z2) in zip(pairs, pairs[1:]))
+            if need > gmax:
+                log(f"  attenzione: {road.rid}: ancoraggi richiedono pendenza {need * 100:.1f}% "
+                    f"(massima {gmax * 100:.1f}%)")
+                gmax = need * 1.04
+        z = clamp_grade(z, ds, gmax, ai, az, zmin=road.zmin)
         z = ndimage.gaussian_filter1d(z, max(1.0, 6.0 / ds), mode="nearest")
-        z = clamp_grade(z, ds, t["max_grade"] * 1.02, ai, az, zmin=road.zmin, iterations=2)
+        z = clamp_grade(z, ds, gmax * 1.02, ai, az, zmin=road.zmin, iterations=2)
         road.z = z
 
     def _bank(self, road):

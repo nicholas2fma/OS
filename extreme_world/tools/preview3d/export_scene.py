@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Esporta una porzione del livello generato per il visualizzatore three.js (preview3d).
 
-Uso: python export_scene.py <cartella_build> <cx> <cy> <mezzo_lato_m> <uscita_dir>
+Uso: python export_scene.py <cartella_build> <cx> <cy> <mezzo_lato_m> <uscita_dir> [max_istanze_per_tipo]
 Scrive terrain.bin (quote float32), colors.bin (RGB uint8), scene.json (oggetti) e copia
 i .dae necessari, così la vista usa esattamente i file del livello.
 """
@@ -75,9 +75,40 @@ def main():
                 objs.append({"class": c, "position": pos, "scale": o["scale"], "rot": o.get("rotationMatrix")})
             elif c == "SpawnSphere":
                 objs.append({"class": c, "position": pos, "rot": o["rotationMatrix"]})
-    meta = {"x0": x0, "y0": y0, "step": g.step * step, "nx": sub.shape[1], "ny": sub.shape[0], "objects": objs}
+    # vegetazione (Forest): istanze nella finestra, mesh e texture della cartella veg
+    forest = {}
+    vegtex = []
+    fdir = lvl / "forest"
+    if fdir.exists():
+        cap = int(sys.argv[6]) if len(sys.argv) > 6 else 40000
+        vdst = out / "veg"
+        vdst.mkdir(exist_ok=True)
+        for f in sorted(fdir.glob("*.forest4.json")):
+            items = []
+            for line in f.read_text().splitlines():
+                o = json.loads(line)
+                x, y, z = o["pos"]
+                if abs(x - cx) <= half and abs(y - cy) <= half:
+                    rm = o["rotationMatrix"]
+                    items.append([x, y, z, float(np.arctan2(rm[1], rm[0])), o["scale"]])
+            if not items:
+                continue
+            name = f.name.replace(".forest4.json", "")
+            forest[name] = items[:cap]
+            src = lvl / "art/shapes/ew/veg" / f"{name}.dae"
+            shutil.copy(src, vdst / src.name)
+        for t in (lvl / "art/shapes/ew/veg").glob("*_b.png"):
+            shutil.copy(t, vdst / t.name)
+            vegtex.append(t.name[:-6])
+        rock = lvl / "art/shapes/ew/ew_rock_wall_b.png"
+        if rock.exists():
+            shutil.copy(rock, vdst / rock.name)
+            vegtex.append("ew_rock_wall")
+    meta = {"x0": x0, "y0": y0, "step": g.step * step, "nx": sub.shape[1], "ny": sub.shape[0], "objects": objs,
+            "forest": forest, "vegtex": vegtex}
     (out / "scene.json").write_text(json.dumps(meta))
-    print(f"esportati {len(objs)} oggetti, terreno {sub.shape}")
+    print(f"esportati {len(objs)} oggetti, terreno {sub.shape}, vegetazione "
+          f"{sum(len(v) for v in forest.values())} istanze")
 
 
 if __name__ == "__main__":

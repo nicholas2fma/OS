@@ -252,7 +252,7 @@ def tunnel_structures(sw: StructureWriter, net, layers: np.ndarray, road_core: n
     Il terreno non viene modellato dentro la galleria; agli imbocchi la trincea d'accesso
     termina contro il versante e lì si praticano i fori (layer 255) in cui entra il tubo."""
     g = sw.g
-    stats = {"tunnels": 0, "length_m": 0.0, "hole_cells": 0}
+    stats = {"tunnels": 0, "length_m": 0.0, "hole_cells": 0, "portals": []}
     for rid in net.order:
         road = net.roads[rid]
         for k, st in enumerate([s for s in road.structures if s.kind == "tunnel"]):
@@ -315,6 +315,8 @@ def tunnel_structures(sw: StructureWriter, net, layers: np.ndarray, road_core: n
                     hi = oc + (e_pos + 1.5 if ti == len(offsets) - 1 else abs(oc))
                     _headwall(m, road, i_end, oc, inner, lo, hi, Hw + Hv + 3.0, out_dir)
             sw.emit(f"galleria_{rid}_{k + 1}", m, "MissionGroup/structures/tunnels", px=1)
+            for sp_ in (st.s0, st.s1):
+                stats["portals"].append([round(float(v), 1) for v in road.point(np.array([sp_]))[0]])
             stats["tunnels"] += 1
             stats["length_m"] += float(st.s1 - st.s0)
     stats["hole_cells"] = int((layers == hole_value).sum())

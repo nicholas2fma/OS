@@ -93,7 +93,43 @@ for (const o of meta.objects) {
     }, undefined, e => { console.error('DAE', o.shape, e); res(); })));
   }
 }
+// vegetazione: solo il LOD più dettagliato di ogni .dae, istanziato
+const texLoader = new THREE.TextureLoader();
+const texCache = {};
+function vegMaterial(name) {
+  if (!(meta.vegtex || []).includes(name)) return new THREE.MeshLambertMaterial({color: 0x8a8580});
+  if (!texCache[name]) {
+    const t = texLoader.load(`${dir}/veg/${name}_b.png`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+    const card = name.startsWith('ew_veg_') && !name.includes('bark');
+    texCache[name] = new THREE.MeshLambertMaterial({map: t, alphaTest: card ? 0.43 : 0, side: card ? THREE.DoubleSide : THREE.FrontSide});
+  }
+  return texCache[name];
+}
+for (const [type, items] of Object.entries(meta.forest || {})) {
+  jobs.push(new Promise(res => loader.load(`${dir}/veg/${type}.dae`, c => {
+    const meshes = []; let best = -1;
+    c.scene.traverse(n => {
+      if (!n.isMesh) return;
+      let a = n, px = null;
+      while (a) { const m = /_a(\d+)$/.exec(a.name || ''); if (m) { px = +m[1]; break; } a = a.parent; }
+      if (px === null) return;   // collisione e altri nodi
+      meshes.push([px, n]); best = Math.max(best, px);
+    });
+    for (const [px, n] of meshes) {
+      if (px !== best) continue;
+      const mats = Array.isArray(n.material) ? n.material.map(m => vegMaterial(m.name)) : vegMaterial(n.material.name);
+      const im = new THREE.InstancedMesh(n.geometry, mats, items.length);
+      const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), P = new THREE.Vector3();
+      const Z = new THREE.Vector3(0, 0, 1);
+      items.forEach((it, i) => { Q.setFromAxisAngle(Z, it[3]); S.setScalar(it[4]); P.set(it[0], it[1], it[2]); M.compose(P, Q, S); im.setMatrixAt(i, M); });
+      scene.add(im);
+    }
+    res();
+  }, undefined, e => { console.error('DAE veg', type, e); res(); })));
+}
 await Promise.all(jobs);
+await new Promise(r => setTimeout(r, 1500));   // texture
 renderer.render(scene, camera);
 window.__done = true;
 </script></body></html>

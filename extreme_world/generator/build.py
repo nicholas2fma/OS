@@ -33,6 +33,7 @@ from ew.level.scene import SceneWriter  # noqa: E402
 from ew.pipeline import Context, load_json, stage_terrain  # noqa: E402
 from ew.render3d import render_view  # noqa: E402
 from ew import structures as S  # noqa: E402
+from ew import vegetation as VG  # noqa: E402
 from ew.roads import decals as D  # noqa: E402
 from ew.roads.network import RoadNetwork  # noqa: E402
 from ew.ter import heights_to_u16, write_ter, write_terrain_json  # noqa: E402
@@ -87,6 +88,17 @@ def build(args):
         net.add_any(spec)
     h = T["h"].copy()
     road_masks = net.stamp_all(h)
+    # cordone dei laghi ripristinato dopo le scarpate stradali (fuori dalle piattaforme e
+    # dall'emissario): nessuna trincea apre la sponda
+    from scipy import ndimage
+    for nm, lk in T["lakes"].items():
+        if lk.get("kind") != "lake" or "inside" not in lk:
+            continue
+        win = lk["window"]
+        d_out = ndimage.distance_transform_edt(~lk["inside"]) * g.step
+        need = (~lk["inside"]) & (d_out < 22.0) & ~lk["outlet"] & (road_masks["core_id"][win] < 0)
+        sub = h[win]
+        sub[need] = np.maximum(sub[need], lk["level"] + 0.6)
     ctx.log(f"strade: {len(net.roads)} tracciati, terreno modellato")
 
     # 3. acqua finale sul terreno definitivo
@@ -94,7 +106,29 @@ def build(args):
                   for nm, lk in T["lakes"].items()}
     rdist = river_distance(g, h, T["rivers"])
 
-    # 4. materiali e layer map
+    # 4. densità della vegetazione (serve anche al sottobosco della layer map)
+    keepout = []
+    for r in net.roads.values():
+        for st in r.structures:
+            if st.kind == "bridge":
+                for s_k in np.arange(st.s0, st.s1 + 1.0, 8.0):
+                    x, y = r.point(np.array([s_k]))[0]
+                    keepout.append((float(x), float(y), r.half_paved + 12.0))
+            else:
+                for s_k in (st.s0, st.s1):
+                    x, y = r.point(np.array([s_k]))[0]
+                    keepout.append((float(x), float(y), 45.0))
+    if T.get("dam"):
+        a_, b_ = np.array(T["dam"]["a"], float), np.array(T["dam"]["b"], float)
+        for t_ in np.linspace(-0.3, 1.3, 12):
+            p_ = a_ + (b_ - a_) * t_
+            keepout.append((float(p_[0]), float(p_[1]), 60.0))
+    veg = VG.forest_density(g, h, ctx.landforms, ctx.noise, {
+        "core_id": road_masks["core_id"], "lake_masks": list(lake_masks.values()), "river_dist": rdist,
+        "keepout": keepout})
+    ctx.log("densità della vegetazione pronta")
+
+    # 5. materiali e layer map
     terrain_mats, colors = M.write_terrain_materials(name, level_dir, world["seed"])
     road_layers = {net.order.index(rid): (r.t["layer"], r.t["verge_layer"]) for rid, r in net.roads.items()}
     from ew.geom import polygon_mask
@@ -102,6 +136,7 @@ def build(args):
     layers = M.classify_layers(g, h, {
         "noise": ctx.noise, "cliff": T["cliff"], "canyon_rock": T["canyon_rock"], "badlands": badlands,
         "lakes": list(lake_masks.values()), "river_dist": rdist, "roads": road_masks, "road_layers": road_layers,
+        "forest": veg["tree"],
     })
     ctx.log("layer map pronta")
 
@@ -114,6 +149,7 @@ def build(args):
     road_mats = D.road_materials(name, road_files)
     (level_dir / D.ART / "main.materials.json").write_text(json.dumps(road_mats, indent=2) + "\n")
     obj_mats = write_object_materials(level_dir, name, world["seed"])
+    obj_mats.update(VG.write_vegetation_textures(level_dir, name, world["seed"]))
     (level_dir / "art/shapes/ew/main.materials.json").write_text(json.dumps(obj_mats, indent=2) + "\n")
     n_decals = 0
     bridges = []
@@ -134,6 +170,14 @@ def build(args):
     write_terrain_json(level_dir / "theTerrain.terrain.json", name, "theTerrain.ter", tcfg["size"], M.NAMES)
     (level_dir / "art/terrains/main.materials.json").write_text(json.dumps(terrain_mats, indent=2) + "\n")
 
+
+    # vegetazione sul terreno definitivo (dopo gallerie e riporti)
+    veg_tris = VG.write_vegetation_shapes(level_dir, name, world["seed"])
+    VG.rock_density(veg, layers, M.IDX)
+    placed = VG.place_vegetation(g, h, veg, world["seed"])
+    forest_counts = VG.write_forest(level_dir, placed)
+    scene.add("MissionGroup/vegetation", {"class": "Forest", "name": "theForest"})
+    ctx.log(f"vegetazione: {sum(forest_counts.values())} istanze {forest_counts}")
 
     spawns_cfg = load_json("spawns.json")
     spawns = spawn_objects(scene, net, spawns_cfg["spawns"])
@@ -172,6 +216,7 @@ def build(args):
         "structures": {"meshes": len(sw.files), "triangles": sw.tris, "bridges": st_bridges, "guardrails": st_rails, "dam": st_dam,
                        "tunnels": st_tun},
         "spawns": spawns, "scene_objects": scene.count(),
+        "vegetation": {"instances": forest_counts, "triangles_lod0_lod1": veg_tris},
         "height_range_m": [round(float(h.min()), 1), round(float(h.max()), 1)],
         "layers_used": {(M.NAMES[i] if i < len(M.NAMES) else "buco"): int(c) for i, c in zip(*np.unique(layers, return_counts=True))},
     })

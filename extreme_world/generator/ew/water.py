@@ -106,13 +106,18 @@ class WaterBuilder:
                 if rv.get("from_lake") == lk["name"]:
                     fr = PolyFeature(rv["line"], spacing=6.0)
                     dr, _, _ = fr.field.query(X, Y, max_dist=300)
-                    free |= dr < 60.0
+                    free |= dr < 16.0
             band = out & (d_out < 200.0) & ~free
             lower = np.minimum(level + 0.6 + 0.04 * d_out, sub + 12.0)
             sub[:] = np.where(band, np.maximum(sub, lower), sub)
+            # cordone (morena) sul lato a valle dei laghi sospesi: per 25 m dalla riva il terreno
+            # resta comunque sopra il livello, poi scende con scarpa 1:2 fino al versante
+            crest = np.where(d_out < 25.0, level + 0.6 + 0.04 * d_out, level + 1.6 - 0.5 * (d_out - 25.0))
+            ring = out & (d_out < 160.0) & ~free
+            sub[:] = np.where(ring, np.maximum(sub, crest), sub)
             self.lakes[lk["name"]] = {"level": level, "center": (cx, cy), "window": win, "kind": "lake",
                                       "block_angle": float(lk.get("rot_deg", 0.0)),
-                                      "design": rho < 1.14}
+                                      "design": rho < 1.14, "inside": inside, "outlet": free}
             log(f"lago {lk['name']}: livello {level} m")
         return h
 
@@ -261,7 +266,7 @@ def _best_rect(allowed, weight):
 
 
 def water_blocks_for_mask(g: Grid, h: np.ndarray, mask: np.ndarray, level: float, angle_deg: float = 0.0,
-                          cell: float = 8.0, max_blocks: int = 14, min_gain: float = 0.004):
+                          cell: float = 8.0, max_blocks: int = 32, min_gain: float = 0.0002):
     """Copre il lago con pochi rettangoli (eventualmente ruotati di angle_deg) che non toccano
     mai terreno sotto il livello fuori dal lago. Restituisce dict con centro, dimensioni, angolo
     e la frazione di lago coperta."""

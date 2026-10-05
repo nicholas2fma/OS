@@ -284,6 +284,9 @@ def validate(build_dir: Path) -> Report:
         if deck_tree is not None:
             dd, ii = deck_tree.query(np.column_stack([x, y]))
             ok &= ~(dd < deck_r[ii])
+        # imbocchi delle gallerie (tratto artificiale e terreno sotto il pavimento del tubo)
+        for px_, py_ in report.get("structures", {}).get("tunnels", {}).get("portals", []):
+            ok &= np.hypot(x - px_, y - py_) > 30.0
         dz = np.diff(zt)
         kink = np.abs(np.diff(dz))
         m = ok[2:] & ok[1:-1] & ok[:-2]
@@ -330,7 +333,54 @@ def validate(build_dir: Path) -> Report:
             sizes = sorted(ndimage.sum(below, lab, range(1, n + 1)))
             if sizes[-2] > 25:
                 R.warn(f"{o['name']}: {n} zone sotto il livello nel blocco (seconda {sizes[-2]:.0f} vertici)")
-    blocks = report.get("water_blocks_detail", [])
+    # sponde chiuse: il terreno sotto il livello collegato all'acqua deve stare dentro i blocchi
+    # (altrimenti si vede il bordo verticale del WaterBlock); l'invaso è chiuso dalla diga (mesh)
+    lf = json.loads((HERE.parent / "config/landforms.json").read_text())
+    reservoirs = {lk["name"].replace(" ", "_") for lk in lf.get("lakes", []) if lk.get("reservoir")}
+    groups = {}
+    for o in objs:
+        if o["class"] == "WaterBlock":
+            lake = o["name"][len("acqua_"):].rsplit("_", 1)[0]
+            groups.setdefault(lake, []).append(o)
+    for lake, wbs in groups.items():
+        if lake in reservoirs:
+            continue
+        lvl = wbs[0]["position"][2]
+        pts = np.array([o["position"][:2] for o in wbs])
+        ext = max(max(o["scale"][:2]) for o in wbs)
+        win = g.window(pts[:, 0].min() - ext, pts[:, 1].min() - ext, pts[:, 0].max() + ext, pts[:, 1].max() + ext, pad=300)
+        X, Y = g.window_mesh(win)
+        inbox = np.zeros(X.shape, dtype=bool)
+        for o in wbs:
+            cx, cy, _ = o["position"]
+            sx, sy, _ = o["scale"]
+            m = o.get("rotationMatrix", [1, 0, 0, 0, 1, 0, 0, 0, 1])
+            u = (X - cx) * m[0] + (Y - cy) * m[1]
+            v = -(X - cx) * m[1] + (Y - cy) * m[0]
+            inbox |= (np.abs(u) <= sx / 2) & (np.abs(v) <= sy / 2)
+        sub = h[win]
+        deep = sub < lvl - 0.3
+        # gli alvei dei fiumi (oggetti River) hanno la propria acqua
+        for o in objs:
+            if o["class"] != "River":
+                continue
+            Nr = np.array(o["nodes"])
+            near = (Nr[:, 0] > X.min() - 50) & (Nr[:, 0] < X.max() + 50) & (Nr[:, 1] > Y.min() - 50) & (Nr[:, 1] < Y.max() + 50)
+            for nd in Nr[near]:
+                rr = nd[3] / 2.0 + 6.0
+                deep &= ~(((X - nd[0]) ** 2 + (Y - nd[1]) ** 2) < rr * rr)
+        lab, _ = ndimage.label(deep)
+        ids = np.unique(lab[deep & inbox])
+        leak = np.isin(lab, ids[ids > 0]) & ~inbox
+        n_leak = int(leak.sum())
+        if n_leak > 2000:
+            R.err(f"lago {lake}: {n_leak} vertici sotto il livello fuori dai WaterBlock e collegati all'acqua "
+                  f"(sponda aperta, prof. max {float((lvl - sub[leak]).max()):.1f} m)")
+        elif n_leak > 50:
+            R.warn(f"lago {lake}: {n_leak} vertici sotto il livello fuori dai WaterBlock (prof. max "
+                   f"{float((lvl - sub[leak]).max()):.1f} m)")
+        else:
+            R.ok(f"lago {lake}: sponde chiuse ({n_leak} vertici sotto il livello fuori dai blocchi)")
     for lake, cov in report.get("water_coverage", {}).items():
         (R.ok if cov > 0.97 else R.warn)(f"lago {lake}: superficie coperta da WaterBlock {cov * 100:.1f}%")
     R.ok(f"WaterBlock {cls['WaterBlock']}, River {cls['River']}")
