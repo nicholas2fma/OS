@@ -60,7 +60,11 @@ def main():
     # mesh
     import collada
     from ew.level.objmaterials import SURF
-    mats = set(res.get("materials", {})) | set(SURF)
+    import tempfile
+    from ew.vegetation import write_vegetation_textures
+    with tempfile.TemporaryDirectory() as td:
+        vmats = write_vegetation_textures(Path(td), "extreme_world", 1)
+    mats = set(res.get("materials", {})) | set(SURF) | set(vmats)
     tris = 0
     bad = 0
     objs = [o for objs in ctx["scene"].groups.values() for o in objs]

@@ -26,6 +26,8 @@
     {"id": "SP14", "name": "SP14 Spirale di Monte Spirale", "type": "mountain", "points": [{"on": "SS1", "near": [1465, 240]}, [1560, 300], {"curl": [1650, 380], "heading_deg": 134, "radius": 48, "lead": 100, "tail": 70}, {"switchbacks_to": [1880, 610], "width": 220, "first_side": "left"}]},
     {"id": "E1", "name": "Strada Distrutta", "type": "broken", "points": [{"on": "RA_OVEST", "near": [-1939, -2725]}, {"route_to": [-2700, -2450]}, {"route_to": [-3250, -2150]}, {"route_to": [-3650, -1750]}], "w_turn": 6.0},
     {"id": "E2", "name": "Sentiero dei Calanchi", "type": "trail", "points": [{"on": "E1", "near": [-2700, -2450]}, {"route_to": [-3000, -3000]}, {"route_to": [-3500, -3400]}, {"route_to": [-3800, -2800]}, {"route_to": [-3500, -2300]}, {"on": "E1", "near": [-3300, -2050]}]},
-    {"id": "PT", "name": "Pista Prove Buche", "type": "local", "width": 7.0, "points": [{"on": "RA_OVEST", "near": [-1905, -2769]}, [-1880, -3000], [-1800, -3350], [-1500, -3520], [-900, -3560], [-500, -3560]]}
+    {"id": "PT", "name": "Pista Prove Buche", "type": "local", "width": 7.0, "points": [{"on": "RA_OVEST", "near": [-1905, -2769]}, [-1880, -3000], [-1800, -3350], [-1500, -3520], [-900, -3560], [-500, -3560]]},
+    {"id": "AS_SUD", "guardrails": false, "name": "Area di servizio Montalba Sud", "type": "ramp", "rank": 76, "points": [{"on": "A1", "near": [149.6, -3264.6], "offset": -8.6}, [269.8, -3275.4], [350.4, -3299.1], [410.7, -3309.8], [511.1, -3307.0], [570.8, -3293.0], [649.9, -3264.5], {"on": "A1", "near": [769.3, -3246.1], "offset": -8.6}]},
+    {"id": "AS_NORD", "guardrails": false, "name": "Area di servizio Montalba Nord", "type": "ramp", "rank": 76, "points": [{"on": "A1", "near": [749.3, -3247.1], "offset": 8.6}, [628.9, -3240.1], [548.2, -3217.7], [488.0, -3207.7], [388.4, -3210.3], [328.8, -3223.6], [249.3, -3250.5], {"on": "A1", "near": [129.6, -3264.8], "offset": 8.6}]}
   ]
 }

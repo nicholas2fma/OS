@@ -137,7 +137,7 @@ def guardrails(sw: StructureWriter, net, h_final: np.ndarray, chunk_m=360.0):
     stats = {"guardrail_m": 0.0, "barrier_m": 0.0}
     for rid in net.order:
         road = net.roads[rid]
-        if road.kind in ("trail", "climb", "dirt", "urban"):
+        if road.kind in ("trail", "climb", "dirt", "urban") or road.spec.get("guardrails", True) is False:
             continue
         n = len(road.s)
         ground = ~road.structure_mask(road.s, "bridge")

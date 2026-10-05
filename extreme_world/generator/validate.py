@@ -342,9 +342,12 @@ def validate(build_dir: Path) -> Report:
         p995 = max(w[2] for w in worst)
         R.ok(f"profili stradali sul terreno quantizzato (escluse testate dei ponti e incroci): 99,5° percentile delle "
              f"variazioni di pendenza su 1 m = {p995 * 100:.1f} cm")
+        damaged = set(report.get("modules", {}).get("danni", {}).get("strade", []))
         for w in sorted(worst, key=lambda w: -w[1])[:8]:
             if w[1] > 0.10:
-                R.warn(f"strada {w[0]}: variazione di pendenza puntuale {w[1] * 100:.1f} cm su 1 m in ({w[3][0]:.0f}, {w[3][1]:.0f})")
+                msg = f"strada {w[0]}: variazione di pendenza puntuale {w[1] * 100:.1f} cm su 1 m in ({w[3][0]:.0f}, {w[3][1]:.0f})"
+                # le strade danneggiate di proposito (buche, cedimenti) non sono un difetto
+                (R.ok if w[0] in damaged else R.warn)(msg + (" (danni voluti)" if w[0] in damaged else ""))
     # pendenze dichiarate
     for rid, r in report["roads"].items():
         R.ok(f"strada {rid}: {r['length_m']} m, quote {r['z_min']}-{r['z_max']} m, pendenza max {r['max_grade_pct']}%")

@@ -78,7 +78,7 @@ const loader = new ColladaLoader();
 const jobs = [];
 for (const o of meta.objects) {
   if (o.class === 'DecalRoad') {
-    if (o.material === 'ew_road_invisible') continue;
+    if (o.material === 'ew_road_invisible' || P.get('nodecals')) continue;
     const c = o.material.startsWith('ew_line') ? 0xf0f0f0 : (o.material.includes('dirt') ? 0x7a5c40 : (o.material.includes('gravel') ? 0x9a9488 : 0x3c3c3e));
     scene.add(ribbon(o.nodes, c, o.material.startsWith('ew_line') ? 0.06 : 0.04));
   } else if (o.class === 'MeshRoad') {

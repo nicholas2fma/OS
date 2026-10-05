@@ -5,7 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const [dir, cam, tgt, out, fov = '55'] = process.argv.slice(2);
+const [dir, cam, tgt, out, fov = '55', extra = ''] = process.argv.slice(2);
 const root = path.dirname(new URL(import.meta.url).pathname);
 const types = {'.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.dae': 'model/vnd.collada+xml'};
 const server = http.createServer((req, res) => {
@@ -21,7 +21,7 @@ const page = await browser.newPage({viewport: {width: 1280, height: 720}});
 const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push(String(e)));
-await page.goto(`http://127.0.0.1:${port}/viewer.html?dir=${path.relative(root, dir)}&cam=${cam}&tgt=${tgt}&fov=${fov}`);
+await page.goto(`http://127.0.0.1:${port}/viewer.html?dir=${path.relative(root, dir)}&cam=${cam}&tgt=${tgt}&fov=${fov}${extra ? '&' + extra : ''}`);
 await page.waitForFunction(() => window.__done === true, null, {timeout: 240000});
 await page.screenshot({path: out});
 if (errors.length) console.log('ERRORI:', errors.join('\n'));
