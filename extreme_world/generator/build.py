@@ -179,6 +179,15 @@ def build(args):
     scene.add("MissionGroup/vegetation", {"class": "Forest", "name": "theForest"})
     ctx.log(f"vegetazione: {sum(forest_counts.values())} istanze {forest_counts}")
 
+    if args.dump_ctx:
+        # contesto per sviluppare e provare i moduli senza rifare la build (ew/devctx.py)
+        import pickle
+        with open(args.dump_ctx, "wb") as f:
+            pickle.dump({"world": world, "landforms": ctx.landforms, "g": g, "h": h, "layers": layers, "net": net,
+                         "road_masks": road_masks, "lake_masks": lake_masks, "rivers": T["rivers"], "lakes": T["lakes"],
+                         "dam": T.get("dam"), "river_dist": rdist}, f, protocol=4)
+        ctx.log(f"contesto salvato in {args.dump_ctx}")
+
     spawns_cfg = load_json("spawns.json")
     spawns = spawn_objects(scene, net, spawns_cfg["spawns"])
     written = scene.write(level_dir)
@@ -241,4 +250,5 @@ if __name__ == "__main__":
     ap.add_argument("--build-dir", default=str(HERE.parent / "build"))
     ap.add_argument("--macro", type=int, default=None, help="risoluzione del rilievo macro (default da world.json)")
     ap.add_argument("--no-zip", action="store_true")
+    ap.add_argument("--dump-ctx", default=None, help="salva il contesto (terreno, strade, maschere) in un pickle")
     build(ap.parse_args())
