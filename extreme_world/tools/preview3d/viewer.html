@@ -61,6 +61,19 @@ function ribbon(nodes, color, lift, closed) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
   return new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2}));
 }
+// vegetazione: solo il LOD più dettagliato di ogni .dae, istanziato
+const texLoader = new THREE.TextureLoader();
+const texCache = {};
+function vegMaterial(name) {
+  if (!(meta.vegtex || []).includes(name)) return new THREE.MeshLambertMaterial({color: 0x8a8580});
+  if (!texCache[name]) {
+    const t = texLoader.load(`${dir}/veg/${name}_b.png`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+    const card = name.startsWith('ew_veg_') && !name.includes('bark');
+    texCache[name] = new THREE.MeshLambertMaterial({map: t, alphaTest: card ? 0.43 : 0, side: card ? THREE.DoubleSide : THREE.FrontSide});
+  }
+  return texCache[name];
+}
 const loader = new ColladaLoader();
 const jobs = [];
 for (const o of meta.objects) {
@@ -88,23 +101,23 @@ for (const o of meta.objects) {
   } else if (o.class === 'TSStatic') {
     jobs.push(new Promise(res => loader.load(`${dir}/${o.shape}`, c => {
       const s = c.scene; s.rotation.set(0, 0, 0); s.position.set(...o.position);
-      s.traverse(n => { if (n.isMesh) n.material = new THREE.MeshLambertMaterial({color: n.material.name && n.material.name.includes('metal') ? 0xb8bcc2 : 0xb0aca2}); });
+      // solo il LOD più dettagliato (niente LOD inferiori né mesh di collisione)
+      let best = -1; const lodOf = n => { let a = n; while (a) { const m = /_a(\d+)$/.exec(a.name || ''); if (m) return +m[1]; if (/^Colmesh/.test(a.name || '')) return -2; a = a.parent; } return null; };
+      s.traverse(n => { if (n.isMesh) { const px = lodOf(n); if (px !== null && px > best) best = px; } });
+      const drop = [];
+      s.traverse(n => {
+        if (!n.isMesh) return;
+        const px = lodOf(n);
+        if (px === -2 || (px !== null && px !== best)) { drop.push(n); return; }
+        const mats = Array.isArray(n.material) ? n.material : [n.material];
+        const conv = mats.map(m => (meta.vegtex || []).includes(m.name) ? vegMaterial(m.name)
+          : new THREE.MeshLambertMaterial({color: m.name && m.name.includes('metal') ? 0xb8bcc2 : 0xb0aca2}));
+        n.material = Array.isArray(n.material) ? conv : conv[0];
+      });
+      drop.forEach(n => n.parent.remove(n));
       scene.add(s); res();
     }, undefined, e => { console.error('DAE', o.shape, e); res(); })));
   }
-}
-// vegetazione: solo il LOD più dettagliato di ogni .dae, istanziato
-const texLoader = new THREE.TextureLoader();
-const texCache = {};
-function vegMaterial(name) {
-  if (!(meta.vegtex || []).includes(name)) return new THREE.MeshLambertMaterial({color: 0x8a8580});
-  if (!texCache[name]) {
-    const t = texLoader.load(`${dir}/veg/${name}_b.png`);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
-    const card = name.startsWith('ew_veg_') && !name.includes('bark');
-    texCache[name] = new THREE.MeshLambertMaterial({map: t, alphaTest: card ? 0.43 : 0, side: card ? THREE.DoubleSide : THREE.FrontSide});
-  }
-  return texCache[name];
 }
 for (const [type, items] of Object.entries(meta.forest || {})) {
   jobs.push(new Promise(res => loader.load(`${dir}/veg/${type}.dae`, c => {

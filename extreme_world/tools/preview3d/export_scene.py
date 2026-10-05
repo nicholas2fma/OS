@@ -93,17 +93,26 @@ def main():
                     items.append([x, y, z, float(np.arctan2(rm[1], rm[0])), o["scale"]])
             if not items:
                 continue
-            name = f.name.replace(".forest4.json", "")
-            forest[name] = items[:cap]
-            src = lvl / "art/shapes/ew/veg" / f"{name}.dae"
+            ftype = f.name.replace(".forest4.json", "")
+            forest[ftype] = items[:cap]
+            src = lvl / "art/shapes/ew/veg" / f"{ftype}.dae"
             shutil.copy(src, vdst / src.name)
         for t in (lvl / "art/shapes/ew/veg").glob("*_b.png"):
             shutil.copy(t, vdst / t.name)
             vegtex.append(t.name[:-6])
-        rock = lvl / "art/shapes/ew/ew_rock_wall_b.png"
-        if rock.exists():
-            shutil.copy(rock, vdst / rock.name)
-            vegtex.append("ew_rock_wall")
+    # texture base dei materiali degli oggetti (strutture, edifici, moduli): nome materiale -> png
+    vdst = out / "veg"
+    vdst.mkdir(exist_ok=True)
+    for mf in (lvl / "art/shapes").rglob("*.materials.json"):
+        for mname, m in json.loads(mf.read_text()).items():
+            st = (m.get("Stages") or [{}])[0]
+            tex = st.get("baseColorMap") or st.get("colorMap")
+            if not tex or mname in vegtex:
+                continue
+            src = lvl / tex.replace(f"/levels/{name}/", "")
+            if src.exists():
+                shutil.copy(src, vdst / f"{mname}_b{src.suffix}")
+                vegtex.append(mname)
     meta = {"x0": x0, "y0": y0, "step": g.step * step, "nx": sub.shape[1], "ny": sub.shape[0], "objects": objs,
             "forest": forest, "vegtex": vegtex}
     (out / "scene.json").write_text(json.dumps(meta))
