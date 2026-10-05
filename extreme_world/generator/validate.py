@@ -209,6 +209,16 @@ def validate(build_dir: Path) -> Report:
         R.ok(f"mesh Collada: {len(dae_files)} file validi secondo pycollada, {dae_tris} triangoli totali")
     except ImportError:
         R.warn("pycollada non installato: mesh non verificate")
+    # GroundCover: ogni layer deve essere l'internalName di un materiale del terreno
+    for o in objs:
+        if o["class"] != "GroundCover":
+            continue
+        for t in o.get("Types", []):
+            if t.get("layer") and t["layer"] not in tmats:
+                R.err(f"{o['__file__']}: GroundCover {o.get('name')}: layer {t['layer']} non è un materiale del terreno")
+            uv = t.get("billboardUVs")
+            if uv and (len(uv) != 4 or min(uv) < 0 or uv[0] + uv[2] > 1.0001 or uv[1] + uv[3] > 1.0001):
+                R.err(f"{o['__file__']}: GroundCover {o.get('name')}: billboardUVs fuori dall'atlante {uv}")
     # ------------------------------------------------------------ vegetazione (Forest)
     fdir = level_dir / "forest"
     if fdir.exists():
