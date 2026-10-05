@@ -101,12 +101,13 @@ def write_atlas(level_dir, level_name, seed):
     atlas = Image.new("RGBA", (CELL_W * COLS, CELL_H * ROWS), (0, 0, 0, 0))
     for name, (c, r) in CELLS.items():
         atlas.alpha_composite(_cell(name, rng), (c * CELL_W, r * CELL_H))
-    # colore sotto le parti trasparenti (niente aloni scuri nelle mipmap)
-    a = np.asarray(atlas).astype(np.float32)
-    alpha = a[..., 3:4] / 255.0
-    fill = np.array([96, 112, 64], dtype=np.float32)
-    rgb = np.where(alpha > 0.02, a[..., :3] / np.maximum(alpha, 1e-3), fill)
-    out = np.concatenate([np.clip(rgb, 0, 255), a[..., 3:4]], -1).astype(np.uint8)
+    # l'atlante è già ad alfa non premoltiplicata (resize RGBA di Pillow e alpha_composite): i
+    # pixel visibili restano come sono; sotto quelli del tutto trasparenti va il colore del pixel
+    # visibile più vicino, così le mipmap non mescolano aloni scuri o chiari
+    from scipy import ndimage
+    a = np.asarray(atlas)
+    _, (iy, ix) = ndimage.distance_transform_edt(a[..., 3] == 0, return_indices=True)
+    out = np.concatenate([a[..., :3][iy, ix], a[..., 3:4]], -1).astype(np.uint8)
     path = level_dir / ART / "ew_erba_b.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(out, "RGBA").save(path, optimize=True)

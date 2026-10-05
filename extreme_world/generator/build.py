@@ -35,6 +35,7 @@ from ew.level.objmaterials import write_object_materials  # noqa: E402
 from ew.level.scene import SceneWriter  # noqa: E402
 from ew.pipeline import Context, load_json, stage_terrain  # noqa: E402
 from ew.render3d import render_view  # noqa: E402
+from ew import slarghi as SL  # noqa: E402
 from ew import structures as S  # noqa: E402
 from ew import vegetation as VG  # noqa: E402
 from ew.roads import decals as D  # noqa: E402
@@ -89,6 +90,12 @@ def build(args):
     net = RoadNetwork(g, T["h"], types, rivers=T["rivers"], lakes=T["lakes"], lines=named_lines(ctx.landforms), dam=T.get("dam"))
     for spec in roads_cfg:
         net.add_any(spec)
+    # piazzole di emergenza e panoramiche: allargano la piattaforma prima della modellazione
+    wet0 = np.zeros(T["h"].shape, dtype=bool)
+    for lk in T["lakes"].values():
+        wet0 |= lake_mask(g, T["h"], lk)
+    bays = SL.plan(net, T["h"], ctx.landforms.get("flats", []), wet0)
+    ctx.log(f"piazzole: {bays['emergenza']} di emergenza, {bays['panoramiche']} panoramiche")
     h = T["h"].copy()
     road_masks = net.stamp_all(h)
     # cordone dei laghi ripristinato dopo le scarpate stradali (fuori dalle piattaforme e
@@ -250,6 +257,7 @@ def build(args):
         "spawns": spawns, "scene_objects": scene.count(),
         "vegetation": {"instances": forest_counts, "triangles_lod0_lod1": veg_tris},
         "modules": module_stats,
+        "piazzole": bays,
         "height_range_m": [round(float(h.min()), 1), round(float(h.max()), 1)],
         "layers_used": {(M.NAMES[i] if i < len(M.NAMES) else "buco"): int(c) for i, c in zip(*np.unique(layers, return_counts=True))},
     })

@@ -300,6 +300,9 @@ def validate(build_dir: Path) -> Report:
     ai = [o for o in objs if o["class"] == "DecalRoad" and o.get("material") == "ew_road_invisible"]
     R.ok(f"DecalRoad visibili {len(road_objs)}, IA {len(ai)}, impalcati MeshRoad {len(bridges)}")
     worst = []
+    detached = []
+    damaged_roads = set(report.get("modules", {}).get("danni", {}).get("strade", []))
+    from scipy import ndimage
     # testate dei ponti: esclusione geometrica (le stazioni delle linee IA sfalsate non
     # coincidono con quelle dell'asse, lo scarto cresce lungo le curve)
     from scipy.spatial import cKDTree
@@ -329,7 +332,7 @@ def validate(build_dir: Path) -> Report:
         y = np.interp(ss, s, N[:, 1])
         zt = g.sample(h, x, y)
         zn = np.interp(ss, s, N[:, 2])
-        ok = np.abs(zt - zn) < 0.6
+        ok = np.ones(len(ss), dtype=bool)
         # escluse: strutture (+12 m), primi/ultimi 20 m (incroci), dove la linea non è sul terreno
         for stc in rinfo.get("structures", []):
             ok &= ~((st_s > stc["s0"] - 12) & (st_s < stc["s1"] + 12))
@@ -340,6 +343,18 @@ def validate(build_dir: Path) -> Report:
         # imbocchi delle gallerie (tratto artificiale e terreno sotto il pavimento del tubo)
         for px_, py_ in report.get("structures", {}).get("tunnels", {}).get("portals", []):
             ok &= np.hypot(x - px_, y - py_) > 30.0
+        # linea dell'IA staccata dal terreno fuori da strutture e incroci: un altro ramo o un'altra
+        # strada ha rimodellato la piattaforma (gradino, muro) oppure un cedimento voluto
+        thr = 1.2 if rid in damaged_roads else 0.6
+        off = ok & (np.abs(zt - zn) >= thr)
+        if off.any():
+            lab, nl = ndimage.label(off)
+            for li in range(1, nl + 1):
+                sel = np.nonzero(lab == li)[0]
+                if len(sel) >= 3:
+                    j = sel[np.argmax(np.abs(zt - zn)[sel])]
+                    detached.append((rid, len(sel), float(zt[j] - zn[j]), (float(x[j]), float(y[j]))))
+        ok &= np.abs(zt - zn) < 0.6
         dz = np.diff(zt)
         kink = np.abs(np.diff(dz))
         m = ok[2:] & ok[1:-1] & ok[:-2]
@@ -358,6 +373,12 @@ def validate(build_dir: Path) -> Report:
                 msg = f"strada {w[0]}: variazione di pendenza puntuale {w[1] * 100:.1f} cm su 1 m in ({w[3][0]:.0f}, {w[3][1]:.0f})"
                 # le strade danneggiate di proposito (buche, cedimenti) non sono un difetto
                 (R.ok if w[0] in damaged else R.warn)(msg + (" (danni voluti)" if w[0] in damaged else ""))
+    if detached:
+        for rid_, n_, dz_, (px_, py_) in sorted(detached, key=lambda d_: -abs(d_[2]))[:12]:
+            msg = f"strada {rid_}: {n_} m in cui la superficie non coincide con il terreno (scarto {dz_:+.2f} m) in ({px_:.0f}, {py_:.0f})"
+            (R.err if abs(dz_) > 1.5 and n_ >= 4 else R.warn)(msg)
+    else:
+        R.ok("superficie delle strade sul terreno ovunque fuori da ponti, gallerie e incroci")
     # pendenze dichiarate
     for rid, r in report["roads"].items():
         R.ok(f"strada {rid}: {r['length_m']} m, quote {r['z_min']}-{r['z_max']} m, pendenza max {r['max_grade_pct']}%")

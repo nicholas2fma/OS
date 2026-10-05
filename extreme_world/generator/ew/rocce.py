@@ -5,8 +5,8 @@ una ricerca sul terreno reale (diramazioni dalle strade delle regioni A, E, F; t
 con pendenza media 35-55%, niente pareti verticali, arrivo su una cima). Qui la superficie diventa
 pietraia/roccia e si aggiungono alcuni gradini di roccia trasversali per i fuoristrada.
 
-H ("Passaggio tra le rocce", sul sentiero E2): grandi massi generati (4-14 m) ai due lati del
-sentiero formano tre strettoie con luce libera misurata sulle mesh (2,8-3,4 m tra 0,1 e 2,5 m
+H ("Passaggio tra le rocce", sul sentiero E2, nel tratto di 320 m più dolce e dritto): grandi
+massi generati (4-14 m) ai due lati del sentiero formano tre strettoie con luce libera misurata sulle mesh (2,8-3,4 m tra 0,1 e 2,5 m
 dal suolo), poi un giardino di massi con gradini da scavalcare. Collisione Visible Mesh Final.
 """
 
@@ -27,7 +27,9 @@ def _rock(seed, size, sub=2):
     m = mesh_rock(seed, sub=sub)
     part = m.parts["ew_rock_wall"]
     P = part["p"][0].copy()
-    P[:, 2] -= 0.3                                       # base a z = 0 circa
+    # mesh_rock ha la base a z = 0 circa: qui la si abbassa di 0,3 (circa un quarto dell'altezza
+    # finita) perché i massi grandi delle strettoie restino ben piantati sui pendii
+    P[:, 2] -= 0.3
     P *= np.asarray(size) / np.array([1.8, 1.5, 1.2])
     N = part["n"][0] / np.asarray(size)                  # normali di una scala anisotropa
     N /= np.linalg.norm(N, axis=1)[:, None]
@@ -38,6 +40,18 @@ def _place(P, N, yaw, origin):
     c, s = np.cos(yaw), np.sin(yaw)
     R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
     return P @ R.T + origin, N @ R.T
+
+
+def _seat(ctx, W, clearance=0.1):
+    """Abbassa il masso finché il suo anello inferiore sta sotto il terreno: niente massi sospesi."""
+    z0, z1 = W[:, 2].min(), W[:, 2].max()
+    low = W[:, 2] < z0 + 0.25 * (z1 - z0)
+    terr = ctx["g"].sample(ctx["h"], W[low, 0], W[low, 1])
+    lift = float(np.max(W[low, 2] - (terr - clearance)))
+    if lift > 0:
+        W = W.copy()
+        W[:, 2] -= lift
+    return W
 
 
 class Passage:
@@ -115,14 +129,19 @@ class Passage:
 
     def garden(self, sa, sb, n=14):
         """Massi bassi sul sentiero, sfalsati: gradini da 0,3-0,8 m da scavalcare."""
+        self.steps = []
         for k in range(n):
             s = sa + (sb - sa) * (k + self.rng.uniform(0.2, 0.8)) / n
             p, t, nv, z = self.frame(s)
             o = self.rng.uniform(-1.6, 1.6)
-            size = (self.rng.uniform(1.0, 2.2), self.rng.uniform(0.9, 1.8), self.rng.uniform(0.6, 1.3))
+            size = (self.rng.uniform(1.2, 2.4), self.rng.uniform(1.0, 2.0), self.rng.uniform(0.9, 1.5))
             P, N, UV, I = _rock(int(self.rng.integers(0, 1 << 30)), size, sub=1)
             c = p + nv * o
-            W, Wn = _place(P, N, self.rng.uniform(0, np.pi), np.array([c[0], c[1], z - 0.4 * size[2]]))
+            z_c = float(self.road.surface(np.array([s]), np.array([o]))[0])
+            top = self.rng.uniform(0.35, 0.8)                  # sommità sopra il piano del sentiero
+            W, Wn = _place(P, N, self.rng.uniform(0, np.pi), np.array([c[0], c[1], z_c + top - P[:, 2].max()]))
+            W = _seat(self.ctx, W)
+            self.steps.append(round(float(W[:, 2].max() - z_c), 2))
             self.mesh.add("ew_rock_wall", W, Wn, UV, I)
 
     def scatter(self, sa, sb, n=10):
@@ -137,6 +156,22 @@ class Passage:
             P, N, UV, I = _rock(int(self.rng.integers(0, 1 << 30)), size)
             W, Wn = _place(P, N, self.rng.uniform(0, np.pi), np.array([c[0], c[1], ground - 0.3 * size[2]]))
             self.mesh.add("ew_rock_wall", W, Wn, UV, I)
+
+
+def _gentlest(road, length, margin=400.0):
+    """Inizio del tratto lungo `length` più dolce e più dritto (pendenza massima + curvatura),
+    lontano dagli estremi e dagli innesti: lì il passaggio tra le rocce resta percorribile."""
+    grade = np.abs(np.diff(road.z) / np.diff(road.s))
+    th = np.unwrap(np.arctan2(road.tan[:, 1], road.tan[:, 0]))
+    best = None
+    for s0 in np.arange(margin, road.length - length - margin, 20.0):
+        if any(s0 - 60.0 < sj < s0 + length + 60.0 for _, sj, _ in road.junctions):
+            continue
+        sel = (road.s >= s0) & (road.s <= s0 + length)
+        score = float(grade[sel[:-1]].max()) + 0.15 * float(np.abs(np.diff(th[sel])).sum())
+        if best is None or score < best[0]:
+            best = (score, float(s0))
+    return best[1] if best else road.length * 0.45
 
 
 def _paint_road(ctx, road, layer_fn):
@@ -157,14 +192,14 @@ def run(ctx: dict) -> dict:
     stats, keep = {}, []
     if "E2" in net.roads:
         e2 = net.roads["E2"]
-        # tratto più dolce del sentiero (pendenza max ~24%, quasi rettilineo)
-        s0 = 2325.0 if e2.length > 2800 else e2.length * 0.45
+        s0 = _gentlest(e2, 320.0)
         H = Passage(ctx, "E2", s0, s0 + 320.0, rng)
         clears = [H.squeeze(s0 + d, float(rng.uniform(SQUEEZE[0] + 0.1, SQUEEZE[1] - 0.1))) for d in (40.0, 110.0, 180.0)]
         H.garden(s0 + 220.0, s0 + 300.0)
         H.scatter(s0, s0 + 320.0)
         ctx["sw"].emit("rocce_passaggio_e2", H.mesh, "MissionGroup/percorsi/H_passaggio_rocce")
-        stats["H"] = {"strettoie": H.report, "triangoli": H.mesh.triangle_count(),
+        stats["H"] = {"inizio": [round(float(v), 1) for v in H.frame(s0)[0]], "s0": round(s0),
+                      "strettoie": H.report, "gradini_m": H.steps, "triangoli": H.mesh.triangle_count(),
                       "luce_ok": all(SQUEEZE[0] - 0.05 <= c <= SQUEEZE[1] + 0.05 for c in clears)}
         for s in np.arange(s0, s0 + 321.0, 20.0):
             x, y = H.frame(s)[0]
@@ -184,14 +219,14 @@ def run(ctx: dict) -> dict:
         mesh = Mesh()
         for s in np.arange(60.0, f1.length - 30.0, 55.0):
             k = int(f1.idx(s))
-            p, t, nv = f1.P[k], f1.tan[k], f1.nor[k]
-            z = float(f1.surface(np.array([s]), np.array([0.0]))[0])
+            p, t, nv = f1.point(np.array([s]))[0], f1.tan[k], f1.nor[k]   # punto esatto alla stazione s
             for o in np.linspace(-2.2, 2.2, 3) + rng.uniform(-0.4, 0.4):
                 size = (rng.uniform(1.2, 2.2), rng.uniform(1.0, 1.6), rng.uniform(0.5, 0.9))
                 P, N, UV, I = _rock(int(rng.integers(0, 1 << 30)), size, sub=1)
                 c = p + nv * o
+                z = float(f1.surface(np.array([s]), np.array([o]))[0])
                 W, Wn = _place(P, N, float(np.arctan2(t[1], t[0])), np.array([c[0], c[1], z - 0.45 * size[2]]))
-                mesh.add("ew_rock_wall", W, Wn, UV, I)
+                mesh.add("ew_rock_wall", _seat(ctx, W), Wn, UV, I)
         ctx["sw"].emit("rocce_salita_f1", mesh, "MissionGroup/percorsi/F_salita_impossibile")
         grade = np.abs(np.diff(f1.z) / np.diff(f1.s))
         stats["F"] = {"lunghezza_m": round(f1.length), "dislivello_m": round(float(f1.z.max() - f1.z.min()), 1),

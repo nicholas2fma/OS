@@ -23,6 +23,9 @@ from .structures import StructureWriter
 def load_ctx(pkl: str | Path, level_dir: Path) -> dict:
     with open(pkl, "rb") as f:
         d = pickle.load(f)
+    for r in d["net"].roads.values():            # pickle precedenti al campo Road.bays
+        if not hasattr(r, "bays"):
+            r.bays = []
     name = d["world"]["level_name"]
     level_dir = Path(level_dir)
     level_dir.mkdir(parents=True, exist_ok=True)

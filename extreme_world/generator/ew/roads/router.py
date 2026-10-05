@@ -253,3 +253,138 @@ def switchbacks(grid, h, start, end, grade, width, min_radius, first_side=1.0, s
         taper = np.minimum(1.0, np.minimum(sP, sP[-1] - sP) / 40.0)
         P = P + u[None, :] * (best * taper)[:, None]
     return P, n
+
+
+def contour_switchbacks(grid, h, start, end, grade, width, min_radius, first_side=1.0, sep=10.0,
+                        spacing=4.0, max_legs=60, avoid=()):
+    """Tornanti posati sul terreno: ogni tratto corre di traverso nel corridoio largo `width`
+    e sta, punto per punto, dove il terreno (lisciato) ha la quota che la strada deve avere
+    salendo con pendenza `grade`; i tornanti hanno raggio almeno `min_radius` e due tratti
+    successivi restano distanti almeno `sep` (asse-asse). Così la strada segue il pendio
+    invece di scavarlo: sui pendii ripidi i tratti si avvicinano, su quelli dolci si allargano.
+    `avoid`: polilinee di altre strade (con la distanza minima dall'asse) da cui i tratti si
+    allontanano risalendo il pendio, salvo nei primi metri dall'innesto.
+    Restituisce (polilinea, numero di tornanti)."""
+    from scipy.spatial import cKDTree
+    start = np.asarray(start, dtype=np.float64)
+    end = np.asarray(end, dtype=np.float64)
+    u = end - start
+    D = float(np.linalg.norm(u))
+    u /= D
+    v = np.array([-u[1], u[0]])
+    hs = ndimage.gaussian_filter(h, 6.0 / grid.step)
+    z0 = float(grid.sample(hs, start[0], start[1]))
+    z1 = float(grid.sample(hs, end[0], end[1]))
+    if z1 <= z0 + 5.0:
+        raise RuntimeError("tornanti: l'arrivo non è più alto della partenza")
+    us = np.arange(-60.0 - 0.15 * D, D + 60.1, 2.0)
+    Wh = width / 2.0
+    obst = []
+    for line, zline, dmin in avoid:
+        L_ = np.asarray(line, dtype=np.float64)
+        seg = np.linalg.norm(np.diff(L_, axis=0), axis=1)
+        sL = np.concatenate([[0.0], np.cumsum(seg)])
+        sq = np.arange(0.0, sL[-1] + 0.1, 2.0)
+        dense = np.column_stack([np.interp(sq, sL, L_[:, 0]), np.interp(sq, sL, L_[:, 1])])
+        obst.append((cKDTree(dense), np.interp(sq, sL, zline), dmin))
+    travelled = [0.0]                                # lunghezza percorsa dall'inizio (per l'innesto)
+
+    def push(vs, uu, zt):
+        """Sposta a monte i punti troppo vicini ad altre strade (non nei primi metri): la distanza
+        richiesta cresce con il dislivello fra le due strade (scarpata a 45° fra le piattaforme)."""
+        if not obst:
+            return uu
+        for _ in range(4):
+            W = start[None, :] + u[None, :] * uu[:, None] + v[None, :] * vs[:, None]
+            Lc = travelled[0] + np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(uu), np.diff(vs)))])
+            ramp = np.clip((Lc - 15.0) / 40.0, 0.0, 1.0)
+            need = np.zeros(len(uu))
+            for tree, zo, dmin in obst:
+                d, j = tree.query(W)
+                need = np.maximum(need, (dmin + np.abs(zt - zo[j])) * ramp - d)
+            if need.max() <= 0.2:
+                break
+            uu = uu + np.maximum(need, 0.0) * 1.2
+        return uu
+
+    def u_at(vv, zt, u_ref):
+        """Ascissa lungo il pendio dove il terreno vale zt (attraversamento in salita più vicino a u_ref)."""
+        Q = start[None, :] + u[None, :] * us[:, None] + v[None, :] * vv
+        f = grid.sample(hs, Q[:, 0], Q[:, 1]) - zt
+        idx = np.nonzero((f[:-1] < 0) & (f[1:] >= 0))[0]
+        if len(idx) == 0:
+            return float(us[0] if f.min() > 0 else us[-1])
+        cr = us[idx] + (-f[idx]) / (f[idx + 1] - f[idx]) * 2.0
+        return float(cr[np.argmin(np.abs(cr - u_ref))])
+
+    def lay(v_from, v_to, u0, z_start, prev, z_cap):
+        """Un tratto da v_from a v_to partendo da (u0, z_start); quote mai oltre z_cap."""
+        vs = np.linspace(v_from, v_to, max(3, int(abs(v_to - v_from) / spacing) + 1))
+        L = np.concatenate([[0.0], np.cumsum(np.abs(np.diff(vs)))])
+        for _ in range(3):
+            zt = np.minimum(z_start + grade * L, z_cap)
+            uu = np.empty(len(vs))
+            ref = u0
+            for i, (vv, zz) in enumerate(zip(vs, zt)):
+                uu[i] = u_at(vv, zz, ref)
+                ref = uu[i]
+            uu = ndimage.gaussian_filter1d(uu, 2.0, mode="nearest")
+            uu = push(vs, uu, zt)
+            if prev is not None:                    # distanza minima dal tratto precedente
+                pv, pu = prev
+                o = np.argsort(pv)
+                uu = np.maximum(uu, np.interp(vs, pv[o], pu[o]) + sep)
+            for lv, lu, lz in legs:                 # e da tutti i tratti più in basso: cresce col dislivello
+                o = np.argsort(lv)
+                # peso graduale verso gli estremi del tratto inferiore (niente gradini nel tracciato)
+                wgt = np.clip(np.minimum(vs - lv.min(), lv.max() - vs) / 15.0, 0.0, 1.0)
+                need = np.interp(vs, lv[o], lu[o]) + sep + 0.5 * np.maximum(zt - np.interp(vs, lv[o], lz[o]), 0.0)
+                uu = uu + np.maximum(need - uu, 0.0) * wgt
+            # partenza raccordata al punto d'arrivo del tornante precedente
+            w = np.clip(np.abs(vs - v_from) / 30.0, 0.0, 1.0)
+            uu = u0 + (uu - u0) * w
+            L = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(uu), np.diff(vs)))])
+        return vs, uu, np.minimum(z_start + grade * L, z_cap)
+
+    pts = [(0.0, 0.0)]
+    legs = []                                        # tratti già posati (v, u, quota) della stessa rampa
+    z, side, v_from, u_c, prev, turns = z0, first_side, 0.0, 0.0, None, 0
+    for _ in range(max_legs):
+        vs, uu, zt = lay(v_from, side * Wh, u_c, z, prev, z1)
+        top = np.nonzero(zt >= z1 - 1e-6)[0]
+        if len(top):                                 # quota d'arrivo raggiunta: lungo la curva di livello fino all'arrivo
+            j = int(top[0])
+            pts += list(zip(uu[1:j + 1], vs[1:j + 1]))
+            if abs(vs[j]) > spacing:
+                u_s, z_s = uu[j], z1
+                if (0.0 - vs[j]) * side < 0:         # l'arrivo è alle spalle: tornante, non inversione
+                    r = max(min_radius, sep / 2.0)
+                    for th in np.linspace(-np.pi / 2, np.pi / 2, max(8, int(np.pi * r / 2.0)))[1:]:
+                        pts.append((uu[j] + r + r * np.sin(th), vs[j] + side * r * np.cos(th)))
+                    u_s, z_s = uu[j] + 2.0 * r, z1 + grade * np.pi * r
+                vs2, uu2, _ = lay(vs[j], 0.0, u_s, z_s, (vs[:j + 1], uu[:j + 1]), z_s)
+                w_end = np.clip(np.abs(vs2) / 30.0, 0.0, 1.0)      # arrivo raccordato al punto finale
+                uu2 = D + (uu2 - D) * w_end
+                pts += list(zip(uu2[1:], vs2[1:]))
+            break
+        pts += list(zip(uu[1:], vs[1:]))
+        travelled[0] += float(np.hypot(np.diff(uu), np.diff(vs)).sum())
+        legs.append((vs[3:-3], uu[3:-3], zt[3:-3]))  # senza le estremità (raccordi dei tornanti)
+        z = float(zt[-1])
+        # tornante: raggio dalla quota del tratto successivo, mai sotto il minimo
+        r = max(min_radius, sep / 2.0)
+        for _ in range(3):
+            u_n = u_at(side * Wh, min(z + grade * np.pi * r, z1), uu[-1] + 2.0 * r)
+            r = max(min_radius, sep / 2.0, (u_n - uu[-1]) / 2.0)
+        uc = uu[-1] + r
+        for th in np.linspace(-np.pi / 2, np.pi / 2, max(8, int(np.pi * r / 2.0)))[1:]:
+            pts.append((uc + r * np.sin(th), side * Wh + side * r * np.cos(th)))
+        z = min(z + grade * np.pi * r, z1)
+        prev, u_c, v_from, side, turns = (vs, uu), uu[-1] + 2.0 * r, side * Wh, -side, turns + 1
+    else:
+        raise RuntimeError("tornanti: troppi tratti per il dislivello")
+    UV = np.array(pts)
+    P = start[None, :] + u[None, :] * UV[:, :1] + v[None, :] * UV[:, 1:2]
+    P = np.vstack([P, end[None, :]])
+    keep = np.concatenate([[True], np.linalg.norm(np.diff(P, axis=0), axis=1) > 0.3])
+    return P[keep], turns

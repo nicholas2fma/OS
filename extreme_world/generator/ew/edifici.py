@@ -104,7 +104,7 @@ def write_textures(level_dir: Path, level_name: str, seed: int) -> dict:
     # finestre a nastro e porte dei capannoni
     n = 256
     a = tg.spectral(n, 1.2, 3, fmin=4)
-    door = np.stack([150 + 0 * a] * 3, -1) * (0.85 + 0.15 * (np.sin(np.linspace(0, 40 * np.pi, n))[:, None] > 0)) \
+    door = np.stack([150 + 0 * a] * 3, -1) * (0.85 + 0.15 * (np.sin(np.linspace(0, 40 * np.pi, n))[:, None, None] > 0)) \
         * (1 + 0.04 * a[..., None])
     pd = tg.save(out / "ew_portone_b.png", np.clip(door * np.array([0.82, 0.86, 0.9]), 0, 255))
     vp = lambda q: f"/levels/{level_name}/{ART}/{q.name}"  # noqa: E731
@@ -355,7 +355,15 @@ class Site:
         z = self.h[iy, ix]
         if z.max() - z.min() > max_range:
             return None
-        return float(np.median(z))
+        zm = float(np.median(z))
+        # nessun pendio ripido addossato ai muri: entro due passi della griglia il terreno non deve
+        # superare il pavimento di oltre 1,5 m (altrimenti il triangolo del terreno entra nell'edificio)
+        ix2, iy2, _ = self.footprint(F, w, d, margin + 2.0 * self.g.step)
+        if (ix2 < 0).any() or (iy2 < 0).any() or (ix2 >= n).any() or (iy2 >= n).any():
+            return None
+        if (self.h[iy2, ix2] - zm).max() > 1.5:
+            return None
+        return zm
 
     def claim(self, F: Frame, w, d, gap):
         ix, iy, _ = self.footprint(F, w, d, gap)
@@ -378,7 +386,7 @@ def _level_pad(ctx, F: Frame, w, d, z, blend=5.0):
     free = core[win] < 0
     # fuori dall'impronta si raccorda solo il terreno vicino alla quota dello spiazzo: scarpate e
     # dirupi restano (la fondazione copre il dislivello)
-    near = (dist <= 0.0) | (np.abs(sub - z) < 3.0)
+    near = (dist <= g.step) | (np.abs(sub - z) < 3.0)
     sub[:] = np.where(free & near, sub + (z - sub) * wgt, sub)
 
 
@@ -548,12 +556,17 @@ class Builder:
                         _paint(self.ctx, Frame(*(c - nor * (d / 2 + 7)), yaw, 0.0), w + 6, 14, "ew_concrete")
                         _paint(self.ctx, F, w, d, "ew_concrete", margin=3.0)
                         if self.rng.random() < 0.3:
-                            sp = c + road.tan[kc] * (w / 2 + 6) + nor * (d / 4)
-                            z = float(self.ctx["g"].sample(self.ctx["h"], sp[0], sp[1]))
+                            sp = c + road.tan[kc] * (w / 2 + 10.5) + nor * (d / 4)   # fuori dal margine del capannone
                             m, l1 = self.mesh_for(*sp)
                             for k in range(int(self.rng.integers(1, 4))):
                                 q = sp + nor * (k * 7.5)
-                                silo(m, l1, q[0], q[1], z, 3.0, float(self.rng.uniform(10, 16)))
+                                Fs = Frame(q[0], q[1], yaw, 0.0)
+                                zs = self.site.check(Fs, 6.0, 6.0, max_range=2.5)
+                                if zs is None:
+                                    break
+                                silo(m, l1, q[0], q[1], zs, 3.0, float(self.rng.uniform(10, 16)))
+                                self.site.claim(Fs, 6.0, 6.0, 1.0)
+                                self.keepout.append([float(q[0]), float(q[1]), 6.0])
                         s += w + self.rng.uniform(8, 16)
                     else:
                         s += 10.0

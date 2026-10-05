@@ -25,14 +25,17 @@ L'archivio contiene la cartella `levels/extreme_world/` con la struttura di un l
 
 ## Generazione dal sorgente
 
-Requisiti: Python 3.10+ con `numpy`, `scipy`, `pillow`, `numba`, `scikit-image`; per la
-verifica delle mesh `pycollada` (facoltativo).
+Requisiti: Python 3.10+ con `numpy`, `scipy`, `pillow` (10.1 o successivo), `numba`,
+`scikit-image`; per la verifica delle mesh `pycollada` e per i test `pytest` (facoltativi). I testi
+dei cartelli usano un font di sistema in grassetto (DejaVu Sans Bold o Arial Bold); se nessuno è
+presente si usa il font predefinito di Pillow.
 
 ```bash
 cd extreme_world/generator
 python3 build.py                  # livello in ../build/levels/extreme_world + ../build/extreme_world.zip
 python3 build.py --no-zip         # senza archivio
 python3 validate.py ../build      # verifica statica del livello generato (0 errori attesi)
+cd .. && python3 -m pytest tests  # test automatici
 ```
 
 La prima build calcola il rilievo (erosione idraulica e termica) e lo memorizza in

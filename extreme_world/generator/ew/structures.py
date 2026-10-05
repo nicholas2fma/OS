@@ -146,11 +146,12 @@ def guardrails(sw: StructureWriter, net, h_final: np.ndarray, chunk_m=360.0):
                 ground &= ~((road.s >= st.s0 - 9.0) & (road.s <= st.s1 + 9.0))
         fast = road.kind in ("highway", "ring", "ramp")
         for side in (1.0, -1.0):
-            edge = side * (road.half_paved + 0.55)
-            z_edge = road.surface(road.s, np.full(n, np.clip(edge, -road.half_paved, road.half_paved)))
+            ext = road.bay_ext(road.s, side)           # piazzole: il guardrail gira sul bordo esterno
+            edge = side * (road.half_paved + 0.55 + ext)
+            z_edge = road.surface(road.s, side * (road.half_paved + ext))
             drop = np.zeros(n)
             for o in (3.0, 6.0, 10.0):
-                Q = road.P + road.nor * (side * (road.half_core + o))
+                Q = road.P + road.nor * (side * (road.half_core + ext + o))[:, None]
                 zt = g.sample(h_final, Q[:, 0], Q[:, 1])
                 drop = np.maximum(drop, z_edge - zt - 0.35 * o)
             need = ground & (fast | (drop > 1.8))
@@ -168,7 +169,7 @@ def guardrails(sw: StructureWriter, net, h_final: np.ndarray, chunk_m=360.0):
                     sel = np.arange(c0, c1 + 1)
                     if len(sel) < 4:
                         continue
-                    P = road.P[sel] + road.nor[sel] * edge
+                    P = road.P[sel] + road.nor[sel] * edge[sel][:, None]
                     path = np.column_stack([P, z_edge[sel]])
                     m = Mesh()
                     # lama (profilo a doppia onda semplificato) + paletti ogni 4 m
@@ -178,7 +179,7 @@ def guardrails(sw: StructureWriter, net, h_final: np.ndarray, chunk_m=360.0):
                     m.sweep("ew_metal", path, rail, closed_profile=True)
                     for j in range(0, len(sel), 2):
                         i = sel[j]
-                        x, y = road.P[i] + road.nor[i] * (edge + side * 0.12)
+                        x, y = road.P[i] + road.nor[i] * (edge[i] + side * 0.12)
                         yaw = float(np.arctan2(road.tan[i, 1], road.tan[i, 0]))
                         m.add_box("ew_metal", (x, y, z_edge[i] + 0.35), (0.12, 0.1, 1.1), yaw)
                     sw.emit(f"guardrail_{rid}_{'s' if side > 0 else 'd'}_{c0}", m, f"MissionGroup/structures/guardrails/{rid}")

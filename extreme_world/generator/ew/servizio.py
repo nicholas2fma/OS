@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from .edifici import Frame, _flat_roof, _level_pad, _paint, _walls, write_textures
+from .materials import IDX
 from .mesh.collada import Mesh
 from .roads.decals import _decal
 
@@ -42,42 +43,87 @@ class Area:
         c = self.road.P[k]
         ka = int(self.a1.idx(float(self.a1.field.query(np.array([c[0]]), np.array([c[1]]))[1][0])))
         out = self.a1.nor[ka] * side                     # verso l'esterno (lontano dall'autostrada)
-        yaw = float(np.arctan2(-out[0], out[1]))
+        # riferimento curvilineo sulla corsia: x = stazione dalla mezzeria del tratto, y = distanza
+        # dall'asse della corsia verso l'esterno; così piazzali e stalli restano attaccati alla
+        # corsia anche dove questa piega verso l'autostrada
+        self.sm = sm
+        self.v_sign = 1.0 if float(self.road.nor[k] @ out) >= 0 else -1.0
+        v = self.road.nor[k] * self.v_sign
+        u = np.array([v[1], -v[0]])
+        self.x_sign = 1.0 if float(self.road.tan[k] @ u) >= 0 else -1.0
         self.z = float(self.road.surface(np.array([sm]), np.array([0.0]))[0])
-        self.F = Frame(c[0], c[1], yaw, self.z)
         self.half = self.road.half_core
+        self.lane_idx = net.order.index(rid)
         self.rid = rid
         self.mesh = Mesh()
         self.decals = []
         self.keepout = []
         self.span = (s1 - s0)
 
+    def lane(self, x):
+        """Punto sull'asse della corsia, versori (u lungo x, v verso l'esterno) e quota."""
+        r = self.road
+        s = float(np.clip(self.sm + self.x_sign * x, 0.0, r.length))
+        p = r.point(np.array([s]))[0]
+        t = np.array([np.interp(s, r.s, r.tan[:, 0]), np.interp(s, r.s, r.tan[:, 1])])
+        t /= np.linalg.norm(t)
+        v = np.array([-t[1], t[0]]) * self.v_sign
+        u = np.array([v[1], -v[0]])
+        return p, u, v, float(r.surface(np.array([s]), np.array([0.0]))[0])
+
     def world(self, x, y):
-        q = self.F.c + self.F.u * x + self.F.v * y
+        p, _, v, _ = self.lane(x)
+        q = p + v * y
         return float(q[0]), float(q[1])
 
     def frame(self, x, y):
-        cx, cy = self.world(x, y)
-        return Frame(cx, cy, float(np.arctan2(self.F.u[1], self.F.u[0])), self.z)
+        p, u, v, z = self.lane(x)
+        q = p + v * y
+        return Frame(q[0], q[1], float(np.arctan2(u[1], u[0])), z)
 
     def apron(self, x0, x1, y0, y1, layer="ew_asphalt"):
-        F = self.frame((x0 + x1) / 2, (y0 + y1) / 2)
-        w, d = x1 - x0, y1 - y0
-        _level_pad(self.ctx, F, w, d, self.z - 0.02, blend=4.0)
-        _paint(self.ctx, F, w, d, layer)
-        r = 0.5 * float(np.hypot(w, d))
-        self.keepout.append([*self.world((x0 + x1) / 2, (y0 + y1) / 2), r + 4.0])
+        """Piazzale a pezzi di 8 m lungo la corsia, spianato e dipinto; banchina di raccordo pavimentata."""
+        n = max(1, int(np.ceil((x1 - x0) / 8.0)))
+        for i in range(n):
+            xa, xb = x0 + (x1 - x0) * i / n, x0 + (x1 - x0) * (i + 1) / n
+            xm = 0.5 * (xa + xb)
+            F = self.frame(xm, 0.5 * (y0 + y1))
+            w, d = xb - xa + 0.6, y1 - y0
+            _level_pad(self.ctx, F, w, d, F.z0 - 0.02, blend=4.0)
+            _paint(self.ctx, F, w, d, layer)
+            # dal bordo pavimentato della corsia al piazzale: stessa pavimentazione (anche sulla banchina)
+            if y0 <= self.half + 2.0:                   # solo i piazzali affacciati sulla corsia
+                yb = self.road.half_paved
+                Fl = self.frame(xm, 0.5 * (yb + y0))
+                self._paint_lane(Fl, w, y0 - yb + 0.4, layer)
+            self.keepout.append([*self.world(xm, 0.5 * (y0 + y1)), 0.5 * float(np.hypot(w, d)) + 4.0])
+
+    def _paint_lane(self, F, w, d, layer):
+        g = self.ctx["g"]
+        core = self.ctx["road_masks"]["core_id"]
+        r = max(w, d) / 2 + 2.0
+        win = g.window(F.c[0] - r, F.c[1] - r, F.c[0] + r, F.c[1] + r)
+        X, Y = g.window_mesh(win)
+        dx, dy = X - F.c[0], Y - F.c[1]
+        inside = (np.abs(dx * F.u[0] + dy * F.u[1]) <= w / 2) & (np.abs(dx * F.v[0] + dy * F.v[1]) <= d / 2)
+        ok = (core[win] < 0) | (core[win] == self.lane_idx)
+        sub = self.ctx["layers"][win]
+        sub[inside & ok] = IDX[layer]
 
     def line(self, xa, ya, xb, yb, width=0.12):
-        za = self.z + 0.0
-        pa, pb = self.world(xa, ya), self.world(xb, yb)
-        self.decals.append(_decal([[pa[0], pa[1], za, width], [pb[0], pb[1], za, width]], "ew_line_solid", 2, 12,
-                                  fade=(0, 0)))
+        n = max(1, int(np.ceil(np.hypot(xb - xa, yb - ya) / 5.0)))
+        nodes = []
+        for t in np.linspace(0.0, 1.0, n + 1):
+            x, y = xa + (xb - xa) * t, ya + (yb - ya) * t
+            q = self.world(x, y)
+            nodes.append([q[0], q[1], self.lane(x)[3], width])
+        self.decals.append(_decal(nodes, "ew_line_solid", 2, 12, fade=(0, 0)))
 
-    def box(self, mat, x, y, z, sx, sy, sz):
-        cx, cy = self.world(x, y)
-        yaw = float(np.arctan2(self.F.u[1], self.F.u[0]))
-        self.mesh.add_box(mat, (cx, cy, self.z + z), (sx, sy, sz), yaw)
+    def box(self, mat, x, y, z, sx, sy, sz, ground=False):
+        p, u, v, zl = self.lane(x)
+        q = p + v * y
+        base = float(self.ctx["g"].sample(self.ctx["h"], q[0], q[1])) if ground else zl
+        self.mesh.add_box(mat, (q[0], q[1], base + z), (sx, sy, sz), float(np.arctan2(u[1], u[0])))
 
     # ---------------------------------------------------------------- elementi
     def car_park(self, x0, n, y0):
@@ -128,11 +174,12 @@ class Area:
         for k in range(n):
             x = x0 + (k % 3) * 8.0
             y = y0 + (k // 3) * 7.0
-            self.box("ew_veg_bark", x, y, 0.75, 2.0, 0.8, 0.08)          # piano del tavolo
-            self.box("ew_veg_bark", x, y, 0.37, 0.12, 0.6, 0.74)         # gamba
+            self.box("ew_veg_bark", x, y, 0.75, 2.0, 0.8, 0.08, ground=True)          # piano del tavolo
+            self.box("ew_veg_bark", x, y, 0.37, 0.12, 0.6, 0.74, ground=True)         # gamba
             for by in (-0.75, 0.75):
-                self.box("ew_veg_bark", x, y + by, 0.45, 2.0, 0.3, 0.06)  # panche
-                self.box("ew_veg_bark", x, y + by, 0.22, 0.1, 0.25, 0.44)
+                self.box("ew_veg_bark", x, y + by, 0.45, 2.0, 0.3, 0.06, ground=True)  # panche
+                self.box("ew_veg_bark", x, y + by, 0.22, 0.1, 0.25, 0.44, ground=True)
+        self.keepout.append([*self.world(x0 + 8.0, y0 + 3.5), 16.0])
 
     def build(self):
         h0 = self.half + 1.0                     # bordo della corsia di servizio

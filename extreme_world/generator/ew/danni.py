@@ -88,22 +88,38 @@ class Damage:
         return z
 
 
-def overlay_mesh(road, s0, s1, dmg: Damage, mat="ew_asfalto_rovinato"):
+def _normals_at(road, S):
+    """Normale sinistra interpolata con continuità lungo s (niente salti fra i nodi a 2 m)."""
+    tx = np.interp(S, road.s, road.tan[:, 0])
+    ty = np.interp(S, road.s, road.tan[:, 1])
+    n = np.hypot(tx, ty)
+    return np.stack([-ty / n, tx / n], axis=-1)
+
+
+def overlay_z(road, S, O, dmg: Damage, s0, s1):
+    """Quota della superficie danneggiata (senza la gonna) in coordinate stradali."""
+    hp = road.half_paved
+    base = road.surface(np.ravel(S), np.clip(np.ravel(O), -hp, hp)).reshape(np.shape(S))
+    edge = smoothstep(hp + 0.05, hp + 0.45, np.abs(O))
+    ends = np.minimum(smoothstep(s0, s0 + 0.9, S), 1.0 - smoothstep(s1 - 0.9, s1, S))
+    return base, edge, ends, base + LIFT + dmg.dz(S, O) * (1.0 - edge) * ends
+
+
+def overlay_mesh(ctx, road, s0, s1, dmg: Damage, mat="ew_asfalto_rovinato"):
     """Griglia di superficie tra s0 e s1 con le deformazioni di dmg; bordi sotto il terreno."""
     hp = road.half_paved
     ss = np.arange(s0, s1 + 1e-6, STEP)
     oo = np.arange(-hp - 0.9, hp + 0.9 + 1e-6, STEP)
     S, O = np.meshgrid(ss, oo, indexing="ij")                    # [lungo, trasversale]
-    k = road.idx(S.ravel()).reshape(S.shape)
     P = road.point(S.ravel()).reshape(S.shape + (2,))
-    nor = road.nor[k]
-    XY = P + nor * O[..., None]
-    base = road.surface(S.ravel(), np.clip(O, -hp, hp).ravel()).reshape(S.shape)
-    # spessore: +4 cm sulla carreggiata, sotto il terreno oltre i bordi e alle estremità
-    edge = smoothstep(hp + 0.05, hp + 0.45, np.abs(O))
-    ends = np.minimum(smoothstep(s0, s0 + 0.9, S), 1.0 - smoothstep(s1 - 0.9, s1, S))
-    lift = LIFT - (LIFT + 0.30) * np.maximum(edge, 1.0 - ends)
-    Z = base + lift + dmg.dz(S, O) * (1.0 - edge) * ends
+    XY = P + _normals_at(road, S) * O[..., None]
+    base, edge, ends, Zd = overlay_z(road, S, O, dmg, s0, s1)
+    # +4 cm sulla carreggiata; oltre i bordi e alle estremità la gonna scende 0,3 m sotto la
+    # piattaforma e comunque 0,15 m sotto il terreno reale (scarpate di riporto, terreno abbassato)
+    skirt = np.maximum(edge, 1.0 - ends)
+    terr = ctx["g"].sample(ctx["h"], XY[..., 0].ravel(), XY[..., 1].ravel()).reshape(S.shape)
+    low = np.minimum(base - 0.30, terr - 0.15)
+    Z = Zd + (low - Zd) * skirt
     V = np.dstack([XY, Z])                                         # (ns, no, 3)
     ns, no = S.shape
     # normali dalla griglia
@@ -137,8 +153,9 @@ def sink_terrain(ctx, road, s0, s1, depth=0.5):
     win = g.window(P[:, 0].min(), P[:, 1].min(), P[:, 0].max(), P[:, 1].max(), pad=hp + 4)
     X, Y = g.window_mesh(win)
     d, sq, off = road.field.query(X, Y, max_dist=hp + 4)
-    along = smoothstep(s0 + 1.2, s0 + 2.6, sq) * (1.0 - smoothstep(s1 - 2.6, s1 - 1.2, sq))
-    across = 1.0 - smoothstep(hp - 0.2, hp + 1.2, np.abs(off))
+    # profondità piena dove la mesh ha i danni (da s0 + 0,9 a s1 - 0,9 e fino a hp + 0,45)
+    along = smoothstep(s0 - 0.6, s0 + 0.9, sq) * (1.0 - smoothstep(s1 - 0.9, s1 + 0.6, sq))
+    across = 1.0 - smoothstep(hp + 0.45, hp + 1.6, np.abs(off))
     sub = h[win]
     sub -= (depth * along * across).astype(sub.dtype)
 
@@ -182,25 +199,27 @@ def landslide(ctx, road, s, side, rng, mesh_rocks: Mesh):
     return c
 
 
-def debris(ctx, road, s0, s1, rng, m: Mesh, n=12):
-    """Detriti: lastre d'asfalto spezzate e piccoli sassi sulla carreggiata."""
-    g, h = ctx["g"], ctx["h"]
+def debris(ctx, road, s0, s1, dmg: Damage, rng, m: Mesh, n=12):
+    """Detriti sulla superficie danneggiata del tratto [s0, s1]: lastre d'asfalto e sassi."""
+    hp = road.half_paved
     for _ in range(n):
-        s = rng.uniform(s0, s1)
-        o = rng.uniform(-road.half_paved, road.half_paved)
-        k = int(road.idx(s))
-        p = road.P[k] + road.nor[k] * o
-        z = float(road.surface(np.array([s]), np.array([o]))[0])
+        s = rng.uniform(s0 + 2.0, s1 - 2.0)
+        o = rng.uniform(-hp + 0.4, hp - 0.4)
+        p = road.point(np.array([s]))[0] + _normals_at(road, np.array([s]))[0] * o
+        # quota minima della superficie sotto l'oggetto (niente pezzi sospesi sopra le buche)
+        S = s + np.array([-0.5, 0.0, 0.5, 0.0, 0.0])
+        O = o + np.array([0.0, 0.0, 0.0, -0.4, 0.4])
+        z = float(overlay_z(road, S, O, dmg, s0, s1)[3].min())
         if rng.random() < 0.5:
             yaw = rng.uniform(0, np.pi)
-            m.add_box("ew_asfalto_rovinato", (p[0], p[1], z + 0.03), (rng.uniform(0.4, 1.1), rng.uniform(0.3, 0.8), 0.07), yaw)
+            m.add_box("ew_asfalto_rovinato", (p[0], p[1], z + 0.025), (rng.uniform(0.4, 1.1), rng.uniform(0.3, 0.8), 0.07), yaw)
         else:
             sc = rng.uniform(0.15, 0.35)
             rock = mesh_rock(int(rng.integers(0, 10_000)), sub=1)
             part = rock.parts["ew_rock_wall"]
             P = part["p"][0] * sc
             P[:, :2] += p
-            P[:, 2] += z - 0.05 * sc
+            P[:, 2] += z - 0.1 * sc                     # base di mesh_rock a z = 0 circa
             m.add("ew_rock_wall", P, part["n"][0], part["uv"][0], part["i"][0])
 
 
@@ -212,16 +231,68 @@ def _emit(ctx, name, mesh, group):
     return 0
 
 
+def _zone_ok(ctx, road, s0, s1, taken):
+    """Tratto utilizzabile: niente ponti o gallerie (con margine), nessun altro ramo della stessa
+    strada né altre strade entro la mesh di superficie, nessuna sovrapposizione con altri tratti."""
+    if s0 < 40.0 or s1 > road.length - 40.0:
+        return False
+    ss = np.arange(s0 - 15.0, s1 + 15.0, 2.0)
+    if road.structure_mask(ss, "bridge").any() or road.structure_mask(ss, "tunnel").any():
+        return False
+    if any(s0 < b + 20.0 and s1 > a - 20.0 for a, b in taken):
+        return False
+    for _, sj, _ in road.junctions:
+        if s0 - 25.0 < sj < s1 + 25.0:
+            return False
+    lat = road.half_paved + 1.5
+    S = np.repeat(np.arange(s0, s1 + 0.1, 3.0), 3)
+    O = np.tile(np.array([-lat, 0.0, lat]), len(S) // 3)
+    XY = road.point(S) + _normals_at(road, S) * O[:, None]
+    _, sq, _ = road.field.query(XY[:, 0], XY[:, 1])
+    if (np.abs(sq - S) > 20.0).any():                 # un altro ramo della stessa strada è più vicino
+        return False
+    g = ctx["g"]
+    core = ctx["road_masks"]["core_id"]
+    me = ctx["net"].order.index(road.rid)
+    ix, iy = g.to_index(XY[:, 0], XY[:, 1])
+    cid = core[np.clip(np.rint(iy).astype(int), 0, core.shape[0] - 1), np.clip(np.rint(ix).astype(int), 0, core.shape[1] - 1)]
+    return not ((cid >= 0) & (cid != me)).any()
+
+
+def _place_zone(ctx, road, s_want, length, taken):
+    """Prima posizione valida vicina a s_want (spostamenti fino a ±240 m)."""
+    for shift in [0.0] + [d * k for k in range(1, 25) for d in (10.0, -10.0)]:
+        s0 = s_want + shift
+        if _zone_ok(ctx, road, s0, s0 + length, taken):
+            return s0
+    return None
+
+
+def _has_rail(ctx, road, s, side):
+    """Vero se in quel punto c'è (o potrebbe esserci) un guardrail sul lato: stesso criterio di
+    structures.guardrails (dislivello oltre la piattaforma), con margine."""
+    g, h = ctx["g"], ctx["h"]
+    ss = np.arange(s - 24.0, s + 24.1, 2.0)
+    k = road.idx(ss)
+    z_edge = road.surface(ss, np.full(len(ss), side * road.half_paved))
+    drop = np.zeros(len(ss))
+    for o in (3.0, 6.0, 10.0):
+        Q = road.P[k] + road.nor[k] * side * (road.half_core + o)
+        drop = np.maximum(drop, z_edge - g.sample(h, Q[:, 0], Q[:, 1]) - 0.35 * o)
+    return bool((drop > 1.2).any())
+
+
 def run(ctx: dict) -> dict:
-    """Danni su PT (pista prove) ed E1 (strada distrutta). Modifica ctx["h"] su E1."""
+    """Danni su PT (pista prove) ed E1 (strada distrutta). Modifica ctx["h"] sotto i tratti."""
     net = ctx["net"]
     rng = np.random.default_rng(ctx["seed"] + 9091)
     stats = {"tratti": 0, "buche": 0, "triangoli": 0, "cedimenti_frane": 0,
-             "strade": [r for r in ("PT", "E1") if r in net.roads]}
+             "strade": [r for r in ("PT", "E1") if r in net.roads], "zone": []}
     zones = []
+    taken = {}
     if "PT" in net.roads:
         pt = net.roads["PT"]
-        # sei zone di gravità crescente, lontane da incroci, ponti e curve strette
+        # sei zone di gravità crescente, lontane da incroci, ponti e altre strade
         plan = [("buche piccole", dict(potholes=(0.06, (0.18, 0.32), (0.05, 0.08)))),
                 ("buche medie", dict(potholes=(0.07, (0.3, 0.55), (0.08, 0.12)))),
                 ("buche grandi e fitte", dict(potholes=(0.10, (0.4, 0.9), (0.10, 0.18)))),
@@ -229,20 +300,25 @@ def run(ctx: dict) -> dict:
                 ("avvallamenti", dict(sinks=(4, (1.5, 3.0), (0.10, 0.25)))),
                 ("bordi sbrecciati", dict(edges=(0.9, 0.16), potholes=(0.04, (0.25, 0.6), (0.06, 0.12), 0.6)))]
         starts = np.linspace(180.0, pt.length - 200.0, len(plan))
-        for (label, spec), s0 in zip(plan, starts):
-            zones.append((pt, s0, s0 + 100.0, label, spec))
+        for (label, spec), s_want in zip(plan, starts):
+            s0 = _place_zone(ctx, pt, s_want, 100.0, taken.setdefault("PT", []))
+            if s0 is not None:
+                taken["PT"].append((s0, s0 + 100.0))
+                zones.append((pt, s0, s0 + 100.0, label, spec))
     if "E1" in net.roads:
         e1 = net.roads["E1"]
-        for i, s0 in enumerate(np.linspace(350.0, e1.length - 450.0, 10)):
+        for i, s_want in enumerate(np.linspace(350.0, e1.length - 450.0, 10)):
             spec = dict(potholes=(0.09, (0.3, 0.8), (0.08, 0.2), 0.3))
             if i % 3 == 1:
                 spec["edges"] = (1.2, 0.2)
             if i % 4 == 2:
                 spec["sinks"] = (2, (1.5, 3.5), (0.12, 0.3))
-            zones.append((e1, s0, s0 + 45.0, f"E1 tratto {i + 1}", spec))
+            s0 = _place_zone(ctx, e1, s_want, 45.0, taken.setdefault("E1", []))
+            if s0 is not None:
+                taken["E1"].append((s0, s0 + 45.0))
+                zones.append((e1, s0, s0 + 45.0, f"E1 tratto {i + 1}", spec))
+    dmgs = []
     for road, s0, s1, label, spec in zones:
-        if road.structure_mask(np.array([s0, s1, (s0 + s1) / 2]), "bridge").any():
-            continue
         dmg = Damage(rng, road.half_paved)
         if "potholes" in spec:
             dens, rr, dd, *bias = spec["potholes"]
@@ -257,39 +333,46 @@ def run(ctx: dict) -> dict:
         if "edges" in spec:
             wdt, d = spec["edges"]
             for side in (1.0, -1.0):
-                a = rng.uniform(s0 + 3, s0 + 30)
-                dmg.edges.append((a, a + rng.uniform(20, 50), side, wdt, d))
-        m, dz = overlay_mesh(road, s0, s1, dmg)
-        sink_terrain(ctx, road, s0, s1)
+                a = rng.uniform(s0 + 3, s0 + 0.6 * (s1 - s0))
+                dmg.edges.append((a, min(a + rng.uniform(20, 50), s1 - 1.0), side, wdt, d))
+        sink_terrain(ctx, road, s0, s1)             # prima la quota del terreno, poi la mesh che lo segue
+        m, dz = overlay_mesh(ctx, road, s0, s1, dmg)
         name = f"danni_{road.rid.lower()}_{int(s0)}"
         stats["triangoli"] += _emit(ctx, name, m, f"MissionGroup/danni/{road.rid}")
         stats["tratti"] += 1
         stats["buche"] += len(dmg.holes)
+        stats["zone"].append([road.rid, label, round(s0), round(s1)])
+        dmgs.append(dmg)
     # E1: cedimenti, frane, detriti
     if "E1" in net.roads:
         e1 = net.roads["E1"]
         free = [s for s in np.arange(300.0, e1.length - 300.0, 20.0)
                 if not any(s0 - 30 < s < s1 + 30 for r, s0, s1, _, _ in zones if r is e1)
-                and not e1.structure_mask(np.array([s]), "bridge")[0]]
+                and _zone_ok(ctx, e1, s - 15.0, s + 15.0, [])]
         rng.shuffle(free)
         picked = []
         for s in free:
-            if all(abs(s - q) > 250 for q in picked):
-                picked.append(s)
             if len(picked) >= 7:
                 break
-        for j, s in enumerate(sorted(picked)):
-            side = 1.0 if j % 2 else -1.0
+            side = 1.0 if len(picked) % 2 else -1.0
+            if not all(abs(s - q) > 250 for q, _ in picked):
+                continue
+            if _has_rail(ctx, e1, s, side):
+                side = -side
+                if _has_rail(ctx, e1, s, side):
+                    continue
+            picked.append((s, side))
+        for j, (s, side) in enumerate(sorted(picked)):
             if j % 3 == 2:
                 rocks = Mesh()
                 landslide(ctx, e1, s, side, rng, rocks)
                 stats["triangoli"] += _emit(ctx, f"danni_e1_frana_{int(s)}", rocks, "MissionGroup/danni/E1")
             else:
                 collapse(ctx, e1, s, side, rng.uniform(5, 12), rng.uniform(0.3, 1.0), rng.uniform(1.5, 3.0))
-        for r, s0, s1, _, _ in zones:
+        for (r, s0, s1, _, _), dmg in zip(zones, dmgs):
             if r is e1:
                 deb = Mesh()
-                debris(ctx, e1, s0, s1, rng, deb)
+                debris(ctx, e1, s0, s1, dmg, rng, deb)
                 stats["triangoli"] += _emit(ctx, f"danni_e1_detriti_{int(s0)}", deb, "MissionGroup/danni/E1")
         stats["cedimenti_frane"] = len(picked)
     mats = write_material(ctx["level_dir"], ctx["level_name"], ctx["seed"])

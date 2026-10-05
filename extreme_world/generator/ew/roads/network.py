@@ -54,6 +54,7 @@ class Road:
     crossings: list = field(default_factory=list)     # dict con dettagli degli incroci a livelli sfalsati
     river_crossings: list = field(default_factory=list)
     fords: list = field(default_factory=list)
+    bays: list = field(default_factory=list)          # piazzole (ew/slarghi.py)
 
     # ----------------------------------------------------------- geometria
     @property
@@ -99,6 +100,19 @@ class Road:
 
     def point(self, s):
         return np.column_stack(self.field.point_at(s))
+
+    def bay_ext(self, s, side):
+        """Allargamento (m) della piattaforma per le piazzole alla stazione s, sul lato `side`
+        (segno dello scostamento laterale: > 0 a sinistra). Raccordi a S lunghi `taper`."""
+        s = np.asarray(s, dtype=np.float64)
+        out = np.zeros(s.shape)
+        if not self.bays:
+            return out
+        sgn = np.broadcast_to(np.sign(side), s.shape)
+        for b in self.bays:
+            u = np.clip(np.minimum(s - (b["s0"] - b["taper"]), (b["s1"] + b["taper"]) - s) / b["taper"], 0.0, 1.0)
+            out = np.where(sgn == b["side"], np.maximum(out, b["width"] * u * u * (3.0 - 2.0 * u)), out)
+        return out
 
     def structure_mask(self, s, kind):
         m = np.zeros(np.shape(s), dtype=bool)
@@ -388,6 +402,64 @@ class RoadNetwork:
         spec["_dam_pts"] = (pts[1], pts[-2], d["crest"])
         return pts
 
+    def _route_piece(self, spec, t, a, b, prev):
+        """A* tra a e b. Se il tratto passa troppo vicino a un altro ramo della stessa strada
+        (piattaforme a contatto o scarpata fra i due rami più ripida di quella del tipo di strada),
+        rende più costose quelle zone e ricalcola: al massimo 4 volte, tiene il tracciato migliore."""
+        hc = spec.get("width", t.get("width", 6.0)) / 2.0 + t["verge"]
+        slope = max(t["cut"], t["fill"])
+        cost = None
+        best = None
+        for attempt in range(5):
+            seg = router.route(self.grid, self.h0, a, b,
+                               max_grade=t["max_grade"] * spec.get("route_grade", 0.92),
+                               min_radius=t["min_radius"], cell=spec.get("route_cell", 4.0),
+                               margin=spec.get("route_margin", 450.0), avoid=cost if cost is not None else self.avoid,
+                               w_cross=spec.get("w_cross", 6.0), w_turn=spec.get("w_turn", 3.0),
+                               z_target=spec.get("route_z", 0.0), w_z=spec.get("w_z", 0.0))
+            seg = router.chaikin(seg, spec.get("chaikin", 3))
+            conf = self._self_conflicts(seg, prev, hc, slope)
+            if best is None or len(conf) < len(best[1]):
+                best = (seg, conf)
+            if not conf:
+                break
+            if cost is None:
+                cost = np.ones(self.h0.shape, dtype=np.float32) if self.avoid is None else self.avoid.astype(np.float32)
+            g = self.grid
+            r = 2.0 * hc + 6.0
+            for x, y in conf:
+                win = g.window(x - r, y - r, x + r, y + r)
+                X, Y = g.window_mesh(win)
+                disc = (X - x) ** 2 + (Y - y) ** 2 <= r * r
+                cost[win] = np.where(disc, np.minimum(cost[win] * 5.0, 200.0), cost[win])
+        seg, conf = best
+        if attempt:
+            log(f"  {spec['id']}: tracciato ricalcolato {attempt} volte per separare i rami; conflitti rimasti {len(conf)}")
+        return seg
+
+    def _self_conflicts(self, seg, prev, hc, slope):
+        """Punti del nuovo tratto troppo vicini a un altro ramo della stessa strada: la distanza fra
+        gli assi deve superare le due semipiattaforme, 2 m e il dislivello diviso la pendenza della
+        scarpata. Restituisce un punto per zona (sul ramo più recente)."""
+        from scipy.spatial import cKDTree
+        Q = seg if prev is None else np.vstack([prev, seg[1:]])
+        n_prev = 0 if prev is None else float(np.linalg.norm(np.diff(prev, axis=0), axis=1).sum())
+        R, sR, _ = resample_polyline(Q, 3.0)
+        z = self.grid.sample(self.h0, R[:, 0], R[:, 1])
+        tree = cKDTree(R)
+        pairs = tree.query_pairs(2.0 * hc + 2.0 + 40.0 / slope, output_type="ndarray")
+        if len(pairs) == 0:
+            return []
+        i, j = pairs.min(1), pairs.max(1)
+        d = np.linalg.norm(R[i] - R[j], axis=1)
+        need = 2.0 * hc + 2.0 + np.abs(z[i] - z[j]) / slope
+        bad = (d < need) & (sR[j] - sR[i] > 3.0 * d + 30.0) & (sR[j] >= n_prev)
+        out = []
+        for q in R[j[bad]]:
+            if all(np.hypot(*(q - o)) > 20.0 for o in out):
+                out.append(q)
+        return out
+
     def _centerline(self, spec, t):
         wps = []
         for wp in spec["points"]:
@@ -436,24 +508,36 @@ class RoadNetwork:
                 if len(cur) > 1:
                     pieces.append(catmull_rom(np.array(cur), spacing=DS / 2)[0])
                 sw = routed[i]
-                seg, nturn = router.switchbacks(self.grid, self.h0, pts[i - 1], pts[i], grade=t["max_grade"] * sw.get("grade", 0.85),
-                                                width=sw["width"], min_radius=t["min_radius"],
-                                                first_side=1.0 if sw.get("first_side", "left") == "left" else -1.0,
-                                                seed=sw.get("seed", len(self.order) + 7),
-                                                width_jitter=sw.get("jitter", 0.22))
+                side = 1.0 if sw.get("first_side", "left") == "left" else -1.0
+                grade = t["max_grade"] * sw.get("grade", 0.85)
+                hc = spec.get("width", t.get("width", 6.0)) / 2.0 + t["verge"]
+                try:
+                    if sw.get("geometric"):
+                        raise RuntimeError("tornanti geometrici richiesti")
+                    # tratti posati sulle curve di livello (la strada segue il pendio)
+                    # le altre strade già tracciate restano lontane dai tratti (fuori dall'innesto)
+                    lo = np.minimum(pts[i - 1], pts[i]) - sw["width"]
+                    hi = np.maximum(pts[i - 1], pts[i]) + sw["width"]
+                    avoid = [(o.P, o.z, o.half_core + hc + 3.0) for o in self.roads.values()
+                             if (o.P[:, 0].max() > lo[0]) and (o.P[:, 0].min() < hi[0])
+                             and (o.P[:, 1].max() > lo[1]) and (o.P[:, 1].min() < hi[1])]
+                    seg, nturn = router.contour_switchbacks(self.grid, self.h0, pts[i - 1], pts[i], grade=grade,
+                                                            width=sw["width"], min_radius=t["min_radius"],
+                                                            first_side=side, sep=2.0 * hc + 3.0, avoid=avoid)
+                except RuntimeError as ex:
+                    log(f"  {spec['id']}: tornanti geometrici ({ex})")
+                    seg, nturn = router.switchbacks(self.grid, self.h0, pts[i - 1], pts[i], grade=grade,
+                                                    width=sw["width"], min_radius=t["min_radius"], first_side=side,
+                                                    seed=sw.get("seed", len(self.order) + 7),
+                                                    width_jitter=sw.get("jitter", 0.22))
                 log(f"  {spec['id']}: {nturn} tornanti")
                 pieces.append(seg)
                 cur = [pts[i]]
             elif routed[i]:
                 if len(cur) > 1:
                     pieces.append(catmull_rom(np.array(cur), spacing=DS / 2)[0])
-                seg = router.route(self.grid, self.h0, pts[i - 1], pts[i],
-                                   max_grade=t["max_grade"] * spec.get("route_grade", 0.92),
-                                   min_radius=t["min_radius"], cell=spec.get("route_cell", 4.0),
-                                   margin=spec.get("route_margin", 450.0), avoid=self.avoid,
-                                   w_cross=spec.get("w_cross", 6.0), w_turn=spec.get("w_turn", 3.0),
-                                   z_target=spec.get("route_z", 0.0), w_z=spec.get("w_z", 0.0))
-                seg = router.chaikin(seg, spec.get("chaikin", 3))
+                prev = np.vstack([pieces[0]] + [pc[1:] for pc in pieces[1:]]) if pieces else None
+                seg = self._route_piece(spec, t, pts[i - 1], pts[i], prev)
                 pieces.append(seg)
                 cur = [pts[i]]
             else:
@@ -461,7 +545,9 @@ class RoadNetwork:
         if len(cur) > 1:
             pieces.append(catmull_rom(np.array(cur), spacing=DS / 2)[0])
         P = pieces[0]
+        joints = []                                   # punti di giunzione fra tratti di natura diversa
         for pc in pieces[1:]:
+            joints.append(P[-1].copy())
             P = np.vstack([P, pc[1:]])
         P, _, _ = resample_polyline(P, DS)
         if any(routed):
@@ -471,7 +557,50 @@ class RoadNetwork:
                 Q[k:-k] = ndimage.uniform_filter1d(P, 2 * k + 1, axis=0)[k:-k]
                 P = Q
         P, s, _ = resample_polyline(P, DS)
+        if "_dam_pts" in spec:                       # estremi del coronamento della diga
+            joints += [np.asarray(spec["_dam_pts"][0], dtype=np.float64), np.asarray(spec["_dam_pts"][1], dtype=np.float64)]
+        if joints and not spec.get("looped"):
+            P = self._round_corners(P, t["min_radius"], joints)
+            P, s, _ = resample_polyline(P, DS)
+        if not spec.get("looped"):
+            # sbalzi brevi ovunque (salti della soluzione lungo i tratti dei tornanti): solo dove il
+            # raggio scende sotto metà del minimo, intervento stretto (i tornanti restano intatti)
+            P = self._round_corners(P, 0.5 * t["min_radius"], None, dil=2)
+            P, s, _ = resample_polyline(P, DS)
         return P, s, links
+
+    @staticmethod
+    def _round_corners(P, rmin, joints, iters=200, dil=None):
+        """Arrotonda gli spigoli con raggio sotto il minimo del tipo di strada, solo vicino alle
+        giunzioni fra tratti di natura diversa (fine dei tornanti, ricciolo, A*, cresta): i tornanti
+        e le curve interne ai tratti restano come sono. Lisciatura laplaciana locale, estremi fissi."""
+        P = P.copy()
+        n = len(P)
+        if n < 12:
+            return P
+        zone = np.zeros(n, dtype=bool) if joints is not None else np.ones(n, dtype=bool)
+        for q in (joints or []):
+            zone |= np.hypot(*(P - q).T) < 2.5 * rmin + 8.0
+        for _ in range(iters):
+            d0 = P[1:-1] - P[:-2]
+            d1 = P[2:] - P[1:-1]
+            a = np.arctan2(d1[:, 1], d1[:, 0]) - np.arctan2(d0[:, 1], d0[:, 0])
+            a = (a + np.pi) % (2 * np.pi) - np.pi
+            R = 0.5 * (np.linalg.norm(d0, axis=1) + np.linalg.norm(d1, axis=1)) / np.maximum(np.abs(a), 1e-9)
+            bad = np.zeros(n, dtype=bool)
+            bad[1:-1] = R < 0.9 * rmin
+            bad &= zone
+            bad[:4] = False
+            bad[-4:] = False
+            if not bad.any():
+                break
+            bad = ndimage.binary_dilation(bad, iterations=dil or max(3, int(rmin / DS) + 2)) & zone
+            bad[:4] = False
+            bad[-4:] = False
+            Q = P.copy()
+            Q[1:-1] = 0.5 * P[1:-1] + 0.25 * (P[:-2] + P[2:])
+            P[bad] = Q[bad]
+        return P
 
     # -------------------------------------------------------------- profilo
     def _ground_profile(self, road):
@@ -491,8 +620,10 @@ class RoadNetwork:
         n = len(road.P)
         order = range(n - 1, -1, -1) if at_end else range(n)
         edge = parent.half_core
-        for i in order:
-            if d[i] >= edge:
+        clear = parent.half_core + 0.5 * road.half_paved + 1.0   # l'asse è fuori dalla piattaforma principale
+        found = False
+        for k_, i in enumerate(order):
+            if not found and d[i] >= edge:
                 z = float(parent.surface(sp[i], np.clip(off[i], -parent.half_paved, parent.half_paved)))
                 road.anchors.append((float(road.s[i]), z, f"incrocio {parent_id}"))
                 road.junctions.append((parent_id, float(road.s[i]), float(sp[i])))
@@ -500,8 +631,16 @@ class RoadNetwork:
                 j = n - 1 if at_end else 0
                 zj = float(parent.surface(sp[j], np.clip(off[j], -parent.half_paved, parent.half_paved)))
                 road.anchors.append((float(road.s[j]), zj, f"asse {parent_id}"))
-                return
-        log(f"  attenzione: {road.rid} non esce dalla piattaforma di {parent_id}")
+                found = True
+            if d[i] >= clear:
+                break
+            # finché le piattaforme si sovrappongono (corsie parallele delle rampe, strade che si
+            # affiancano prima di innestarsi) la strada segue la quota della principale
+            if k_ % 3 == 0 and k_ > 0:
+                z = float(parent.surface(sp[i], np.clip(off[i], -parent.half_core, parent.half_core)))
+                road.anchors.append((float(road.s[i]), z, f"piattaforma {parent_id}"))
+        if not found:
+            log(f"  attenzione: {road.rid} non esce dalla piattaforma di {parent_id}")
 
     def _crossings(self, road):
         """Incroci con strade già progettate (a raso o sfalsati) e con i fiumi."""
@@ -889,7 +1028,10 @@ class RoadNetwork:
         seam = np.zeros(h.shape, dtype=bool)
         for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
             b = np.roll(core_id, (dy, dx), axis=(0, 1))
-            seam |= (core_id >= 0) & (b >= 0) & (core_id != b)
+            hb = np.roll(h, (dy, dx), axis=(0, 1))
+            # solo le cuciture degli innesti (gradini piccoli): due piattaforme che si sfiorano a
+            # quote diverse (tornanti sovrapposti, strade vicine) restano separate
+            seam |= (core_id >= 0) & (b >= 0) & (core_id != b) & (np.abs(h - hb) < 1.5)
         seam = ndimage.binary_dilation(seam, iterations=3)
         if seam.any():
             sm = ndimage.gaussian_filter(h, 1.2)
@@ -902,7 +1044,8 @@ class RoadNetwork:
         hc = road.half_core
         hp = road.half_paved
         side = max(t["max_fill_width"], 20.0)
-        R = hc + side + 2.0
+        R0 = hc + side + 2.0
+        R = R0 + max([b["width"] for b in road.bays], default=0.0)   # raggio di ricerca (piazzole comprese)
         P = road.P
         win = g.window(P[:, 0].min(), P[:, 1].min(), P[:, 0].max(), P[:, 1].max(), pad=R + 4)
         sy, sx = win
@@ -926,7 +1069,9 @@ class RoadNetwork:
             dbest[ly, lx] = np.where(better, d, dbest[ly, lx])
             sbest[ly, lx] = np.where(better, s, sbest[ly, lx])
             obest[ly, lx] = np.where(better, off, obest[ly, lx])
-        near = dbest <= R
+        # piazzole: piattaforma e parte pavimentata allargate sul loro lato
+        ext = road.bay_ext(sbest, obest)
+        near = dbest <= R0 + ext
         if not near.any():
             return
         sub = h[sy, sx]
@@ -944,16 +1089,17 @@ class RoadNetwork:
             for edge, sign in ((st.s0, 1.0), (st.s1, -1.0)):
                 u = (s_ - edge) * sign  # >0 dentro il ponte
                 lower = np.maximum(lower, np.where((u > -4.0) & (u <= 0.0), 0.18 * (u + 4.0) / 4.0, 0.0))
-        off_c = np.clip(obest, -hc, hc)
+        hc_e, hp_e = hc + ext, hp + ext
+        off_c = np.clip(obest, -hc_e, hc_e)
         zs = road.surface(s_, off_c) - lower
-        core = near & (dbest <= hc) & ~skip & ~beyond
+        core = near & (dbest <= hc_e) & ~skip & ~beyond
         # piattaforma
         sub[core] = zs[core]
         core_id[sy, sx][core] = index
-        verge_m[sy, sx] |= core & (dbest > hp)
+        verge_m[sy, sx] |= core & (dbest > hp_e)
         # scarpate
-        e = np.maximum(dbest - hc, 0.0)
-        side_zone = near & (dbest > hc) & ~skip
+        e = np.maximum(dbest - hc_e, 0.0)
+        side_zone = near & (dbest > hc_e) & ~skip
         side_zone |= near & beyond & ~skip & (dbest > 0)
         e = np.where(beyond, dbest, e)
         cut_t = zs + e * t["cut"]
@@ -966,8 +1112,10 @@ class RoadNetwork:
         new = np.where(trunc, orig, new)
         # raccordo morbido agli estremi liberi
         if road.spec.get("open_ends", True):
-            fade = np.clip(1.0 - dbest / R, 0.0, 1.0)
+            fade = np.clip(1.0 - dbest / R0, 0.0, 1.0)
             new = np.where(beyond, orig + (new - orig) * fade, new)
+        # le scarpate non toccano mai la piattaforma di un'altra strada già modellata
+        side_zone &= (core_id[sy, sx] < 0) | (core_id[sy, sx] == index)
         sub[side_zone] = new[side_zone]
         slope_cut[sy, sx][side_zone] = np.maximum(slope_cut[sy, sx][side_zone], np.maximum(orig - new, 0)[side_zone])
         slope_fill[sy, sx][side_zone] = np.maximum(slope_fill[sy, sx][side_zone], np.maximum(new - orig, 0)[side_zone])
