@@ -562,6 +562,15 @@ def write_vegetation_shapes(level_dir: Path, level_name: str, seed: int) -> dict
 
 
 # ======================================================================= densità
+def _blur_lowres(mask, sigma_cells, factor=8):
+    """Sfocatura gaussiana larga calcolata a risoluzione ridotta e riportata alla griglia piena
+    (equivalente per sigma >> factor, decine di volte più veloce)."""
+    n = mask.shape[0]
+    small = mask.astype(np.float32).reshape(n // factor, factor, n // factor, factor).mean(axis=(1, 3))
+    small = ndimage.gaussian_filter(small, sigma_cells / factor)
+    return ndimage.zoom(small, factor, order=1, grid_mode=True, mode="nearest").astype(np.float32)
+
+
 def forest_density(g, h, lf, noise, ctx) -> dict:
     """Campi di densità [0..1] su tutta la griglia: alberi, cespugli, massi; frazione di conifere.
 
@@ -582,8 +591,7 @@ def forest_density(g, h, lf, noise, ctx) -> dict:
     acc = np.zeros(h.shape, dtype=np.float32)
     wsum = np.zeros(h.shape, dtype=np.float32)
     for reg in lf.get("regions", []):
-        msk = polygon_mask(g, reg["poly"]).astype(np.float32)
-        msk = ndimage.gaussian_filter(msk, 250.0 / g.step / 2)
+        msk = _blur_lowres(polygon_mask(g, reg["poly"]), 250.0 / g.step / 2)
         acc += msk * region_w.get(reg["code"], 0.55)
         wsum += msk
     base = np.where(wsum > 0.05, (acc + base * np.maximum(0, 1 - wsum)) / np.maximum(wsum, 1.0), base)
@@ -625,7 +633,7 @@ def forest_density(g, h, lf, noise, ctx) -> dict:
     bush = np.clip(0.35 * edge + 0.45 * riparian + meadow, 0, 1) * (1.0 - smoothstep(34.0, 42.0, slope))
     dry = np.zeros(h.shape, dtype=np.float32)
     if lf.get("badlands"):
-        bad = ndimage.gaussian_filter(polygon_mask(g, lf["badlands"]["poly"]).astype(np.float32), 40.0)
+        bad = _blur_lowres(polygon_mask(g, lf["badlands"]["poly"]), 40.0)
         dry = (0.10 * bad * smoothstep(-0.3, 0.8, n2)).astype(np.float32)
     bush = (bush * clear).astype(np.float32)
     dry = (dry * clear).astype(np.float32)
@@ -713,12 +721,35 @@ def place_vegetation(g, h, fields, seed, cell_tree=8.0, cell_bush=9.0, cell_rock
     keep = rng.random(len(x)) < g.sample(fields["rock"], x, y)
     x, y = x[keep], y[keep]
     sc = 0.4 + 1.8 * rng.random(len(x)) ** 2.2
-    z = g.sample(h, x, y) - 0.25 * sc - 0.5 * sc * g.sample(tan_s, x, y)
+    # interrati in proporzione alla pendenza, ma mai oltre il 60% della loro altezza (~1 m x scala)
+    z = g.sample(h, x, y) - np.minimum(0.25 * sc + 0.5 * sc * g.sample(tan_s, x, y), 0.6 * sc)
     kind = rng.integers(0, 3, len(x))
     yaw = rng.uniform(0, 2 * np.pi, len(x))
     for k in range(3):
         sel = kind == k
         add(f"ew_masso_{k + 1}", x[sel], y[sel], z[sel], yaw[sel], sc[sel])
+    return out
+
+
+def apply_keepout(placed: dict, g, keepout) -> dict:
+    """Toglie le istanze che cadono nelle zone [x, y, raggio] riservate dai moduli (edifici, piazzali...)."""
+    if not keepout:
+        return placed
+    mask = np.zeros((g.size, g.size), dtype=bool)
+    for x, y, r in keepout:
+        win = g.window(x - r, y - r, x + r, y + r)
+        X, Y = g.window_mesh(win)
+        mask[win] |= (X - x) ** 2 + (Y - y) ** 2 <= r * r
+    out = {}
+    for name, items in placed.items():
+        if not items:
+            out[name] = items
+            continue
+        a = np.asarray(items, dtype=np.float64)
+        ix = np.clip(np.rint((a[:, 0] - g.x0) / g.step).astype(int), 0, g.size - 1)
+        iy = np.clip(np.rint((a[:, 1] - g.y0) / g.step).astype(int), 0, g.size - 1)
+        keep = ~mask[iy, ix]
+        out[name] = [tuple(v) for v in a[keep].tolist()]
     return out
 
 

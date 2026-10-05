@@ -12,6 +12,7 @@ Requisiti: Python 3.10+, numpy, scipy, pillow, numba, scikit-image.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import shutil
 import sys
@@ -22,6 +23,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
+# moduli opzionali eseguiti dopo le strutture stradali, nell'ordine (ew/<nome>.py con run(ctx))
+MODULES = ["edifici", "servizio", "rocce", "danni", "arredo", "erba"]
 sys.path.insert(0, str(HERE))
 
 from ew import materials as M  # noqa: E402
@@ -150,7 +153,6 @@ def build(args):
     (level_dir / D.ART / "main.materials.json").write_text(json.dumps(road_mats, indent=2) + "\n")
     obj_mats = write_object_materials(level_dir, name, world["seed"])
     obj_mats.update(VG.write_vegetation_textures(level_dir, name, world["seed"]))
-    (level_dir / "art/shapes/ew/main.materials.json").write_text(json.dumps(obj_mats, indent=2) + "\n")
     n_decals = 0
     bridges = []
     for rid in net.order:
@@ -161,6 +163,26 @@ def build(args):
     st_rails = S.guardrails(sw, net, h)
     st_dam = S.dam_structure(sw, T.get("dam"), T["h"])
     st_tun = S.tunnel_structures(sw, net, layers, road_masks["core_id"])
+    # moduli aggiuntivi (edifici, area di servizio, percorsi speciali, danni stradali, arredo,
+    # erba): ognuno espone run(ctx) e restituisce materiali, statistiche e zone senza vegetazione
+    mod_ctx = {"world": world, "landforms": ctx.landforms, "g": g, "h": h, "layers": layers, "net": net,
+               "road_masks": road_masks, "lake_masks": lake_masks, "rivers": T["rivers"], "lakes": T["lakes"],
+               "dam": T.get("dam"), "river_dist": rdist, "level_dir": level_dir, "level_name": name,
+               "seed": world["seed"], "scene": scene, "sw": sw, "noise": ctx.noise}
+    keepout_mod, module_stats = [], {}
+    for mname in MODULES:
+        try:
+            mod = importlib.import_module(f"ew.{mname}")
+        except ModuleNotFoundError as ex:
+            if ex.name != f"ew.{mname}":
+                raise
+            continue
+        out = mod.run(mod_ctx) or {}
+        obj_mats.update(out.get("materials", {}))
+        keepout_mod += [list(k) for k in out.get("keepout", [])]
+        module_stats[mname] = out.get("stats", {})
+        ctx.log(f"modulo {mname}: {module_stats[mname]}")
+    (level_dir / "art/shapes/ew/main.materials.json").write_text(json.dumps(obj_mats, indent=2) + "\n")
     ctx.log(f"strutture: {len(sw.files)} mesh, {sw.tris} triangoli, ponti {st_bridges}, guardrail {st_rails}")
     blocks, river_objs = water_objects(scene, g, h, lake_masks, T["rivers"], T["lakes"])
     # file del terreno (dopo le gallerie: i fori sono nella layer map)
@@ -175,6 +197,7 @@ def build(args):
     veg_tris = VG.write_vegetation_shapes(level_dir, name, world["seed"])
     VG.rock_density(veg, layers, M.IDX)
     placed = VG.place_vegetation(g, h, veg, world["seed"])
+    placed = VG.apply_keepout(placed, g, keepout_mod)
     forest_counts = VG.write_forest(level_dir, placed)
     scene.add("MissionGroup/vegetation", {"class": "Forest", "name": "theForest"})
     ctx.log(f"vegetazione: {sum(forest_counts.values())} istanze {forest_counts}")
@@ -226,6 +249,7 @@ def build(args):
                        "tunnels": st_tun},
         "spawns": spawns, "scene_objects": scene.count(),
         "vegetation": {"instances": forest_counts, "triangles_lod0_lod1": veg_tris},
+        "modules": module_stats,
         "height_range_m": [round(float(h.min()), 1), round(float(h.max()), 1)],
         "layers_used": {(M.NAMES[i] if i < len(M.NAMES) else "buco"): int(c) for i, c in zip(*np.unique(layers, return_counts=True))},
     })

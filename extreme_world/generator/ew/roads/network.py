@@ -884,6 +884,16 @@ class RoadNetwork:
         for rid in ids:
             road = self.roads[rid]
             self._stamp(road, h, core_id, verge, slope_cut, slope_fill, self.order.index(rid))
+        # giunzioni: dove si toccano le piattaforme di strade diverse l'ultima stampata lascia
+        # piccoli gradini; una sfocatura leggera, solo lungo le cuciture, li raccorda
+        seam = np.zeros(h.shape, dtype=bool)
+        for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            b = np.roll(core_id, (dy, dx), axis=(0, 1))
+            seam |= (core_id >= 0) & (b >= 0) & (core_id != b)
+        seam = ndimage.binary_dilation(seam, iterations=3)
+        if seam.any():
+            sm = ndimage.gaussian_filter(h, 1.2)
+            h[seam] = sm[seam]
         return {"core_id": core_id, "verge": verge, "cut": slope_cut, "fill": slope_fill}
 
     def _stamp(self, road, h, core_id, verge_m, slope_cut, slope_fill, index):

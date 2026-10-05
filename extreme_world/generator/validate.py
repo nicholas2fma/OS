@@ -209,6 +209,49 @@ def validate(build_dir: Path) -> Report:
         R.ok(f"mesh Collada: {len(dae_files)} file validi secondo pycollada, {dae_tris} triangoli totali")
     except ImportError:
         R.warn("pycollada non installato: mesh non verificate")
+    # ------------------------------------------------------------ vegetazione (Forest)
+    fdir = level_dir / "forest"
+    if fdir.exists():
+        mi = level_dir / "art/forest/managedItemData.json"
+        items = json.loads(mi.read_text()) if mi.exists() else {}
+        if not items:
+            R.err("forest/ presente ma art/forest/managedItemData.json mancante o vuoto")
+        for k, it in items.items():
+            if it.get("class") != "TSForestItemData" or it.get("name") != k:
+                R.err(f"managedItemData {k}: class/name incoerenti")
+            sp = level_dir / str(it.get("shapeFile", "")).replace(f"/levels/{name}/", "")
+            if not sp.exists():
+                R.err(f"managedItemData {k}: shapeFile mancante {it.get('shapeFile')}")
+        if cls["Forest"] != 1:
+            R.err(f"serve un solo oggetto Forest (trovati {cls['Forest']})")
+        n_inst, off, worst = 0, [], 0.0
+        for f in sorted(fdir.glob("*.forest4.json")):
+            tname = f.name[: -len(".forest4.json")]
+            if tname not in items:
+                R.err(f"{f.name}: tipo senza ForestItemData")
+            rows = []
+            for ln, line in enumerate(f.read_text().splitlines(), 1):
+                o = json.loads(line)
+                if o.get("type") != tname or len(o.get("rotationMatrix", [])) != 9 or not np.isfinite(o["pos"]).all():
+                    R.err(f"{f.name}:{ln}: riga non valida")
+                    break
+                rows.append(o["pos"])
+            if not rows:
+                continue
+            P = np.array(rows)
+            n_inst += len(P)
+            inside = (np.abs(P[:, 0]) < 4096) & (np.abs(P[:, 1]) < 4096)
+            if not inside.all():
+                R.err(f"{f.name}: {int((~inside).sum())} istanze fuori dal terreno")
+            dz = P[inside, 2] - g.sample(h, P[inside, 0], P[inside, 1])
+            off.append(dz)
+            worst = max(worst, float(np.abs(dz).max()))
+        if off:
+            dz = np.concatenate(off)
+            bad = int(((dz > 0.3) | (dz < -3.0)).sum())
+            (R.warn if bad else R.ok)(f"vegetazione: {n_inst} istanze in {len(items)} tipi; base rispetto al terreno "
+                                      f"{np.percentile(dz, 1):.2f}..{np.percentile(dz, 99):.2f} m"
+                                      + (f", {bad} fuori da [-3, +0.3] m" if bad else ""))
     tb = next(o for o in objs if o["class"] == "TerrainBlock")
     if tb["terrainFile"] != f"/levels/{name}/theTerrain.ter":
         R.err("TerrainBlock.terrainFile errato")

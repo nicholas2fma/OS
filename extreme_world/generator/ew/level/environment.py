@@ -173,6 +173,13 @@ def spawn_objects(scene, net, spawns: list) -> list:
     for sp in spawns:
         road = net.roads[sp["road"]]
         s = sp["s"] if sp["s"] >= 0 else road.length + sp["s"]
+        # entro ±150 m il punto più piano: poca sopraelevazione e pendenza, niente ponti o gallerie
+        cand = np.clip(s + np.arange(-150.0, 151.0, 10.0), 30.0, road.length - 30.0)
+        on_struct = road.structure_mask(cand, "bridge") | road.structure_mask(cand, "tunnel")
+        bank = np.abs(np.interp(cand, road.s, road.bank))
+        grade = np.abs(np.gradient(np.interp(cand, road.s, road.z), 10.0))
+        cost = bank * 4.0 + grade + np.abs(cand - s) / 3000.0 + on_struct * 10.0
+        s = float(cand[int(np.argmin(cost))])
         k = int(road.idx(s))
         off = sp.get("offset", 0.0)
         if road.dual:
